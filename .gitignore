@@ -1,0 +1,69 @@
+# Firebase Credentials - NEVER COMMIT THESE!
+firebase-credentials.json
+*-firebase-adminsdk-*.json
+serviceAccountKey.json
+firebase-key.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Service files with secrets
+*.service
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+temp/
+simulator_temp/
+*.tmp
+*.log
+
+# Audio files (except audio directory samples)
+*.wav
+*.mp3
+*.m4a
+!audio/*.mp3
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation (optional - uncomment if you don't want to commit docs)
+# *.md

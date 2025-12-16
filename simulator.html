@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Luno Toy Simulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 0.9em;
+        }
+
+        .status-bar {
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .status-item {
+            display: inline-block;
+            margin-right: 20px;
+            font-size: 0.9em;
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: #6c757d;
+        }
+
+        .status-value {
+            color: #495057;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-active {
+            background: #28a745;
+            box-shadow: 0 0 10px #28a745;
+        }
+
+        .status-idle {
+            background: #dc3545;
+        }
+
+        .main-content {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section h2 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+            color: #495057;
+            border-left: 4px solid #667eea;
+            padding-left: 10px;
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #495057;
+            font-size: 0.9em;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 0.9em;
+            transition: border-color 0.3s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .message-input {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .message-input input {
+            flex: 1;
+        }
+
+        .audio-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .log-area {
+            background: #212529;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            line-height: 1.4;
+        }
+
+        .log-timestamp {
+            color: #6c757d;
+            margin-right: 10px;
+        }
+
+        .log-success {
+            color: #28a745;
+        }
+
+        .log-error {
+            color: #dc3545;
+        }
+
+        .log-info {
+            color: #17a2b8;
+        }
+
+        .recording-indicator {
+            display: none;
+            background: #dc3545;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-top: 10px;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .recording-indicator.active {
+            display: block;
+        }
+
+        .audio-player {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 ESP32 Luno Toy Simulator</h1>
+            <p>Virtual ESP32 client for testing the Luno backend</p>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-label">Status:</span>
+                <span class="status-indicator" id="statusIndicator"></span>
+                <span class="status-value" id="statusText">Idle</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Session:</span>
+                <span class="status-value" id="sessionId">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Messages:</span>
+                <span class="status-value" id="messageCount">0</span>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- Configuration Section -->
+            <div class="section">
+                <h2>⚙️ Configuration</h2>
+                <div class="config-grid">
+                    <div class="form-group">
+                        <label class="form-label">User ID</label>
+                        <input type="text" class="form-input" id="userId" value="test_user_123">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="email" value="test@lunotoys.com" placeholder="user@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Child ID</label>
+                        <input type="text" class="form-input" id="childId" value="test_child_456">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Toy ID</label>
+                        <input type="text" class="form-input" id="toyId" value="test_toy_789">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Device ID</label>
+                        <input type="text" class="form-input" id="deviceId" value="test_toy_789" placeholder="MAC address or unique ID">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Backend URL</label>
+                        <input type="text" class="form-input" id="backendUrl" value="http://localhost:5005">
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="testAuthentication()">🔐 Test Authentication</button>
+                <button class="btn btn-secondary" onclick="testConnection()">🔌 Test Connection</button>
+                <button class="btn btn-warning" onclick="resetSession()">🔄 New Session</button>
+            </div>
+
+            <!-- Account Setup Section -->
+            <div class="section">
+                <h2>👤 Account Setup</h2>
+                <p style="font-size: 0.9em; color: #6c757d; margin-bottom: 15px;">Create test accounts and add toys for testing authentication</p>
+
+                <div class="config-grid">
+                    <div class="form-group">
+                        <label class="form-label">Email *</label>
+                        <input type="email" class="form-input" id="setupEmail" value="test@lunotoys.com" placeholder="user@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Display Name</label>
+                        <input type="text" class="form-input" id="displayName" value="Test Parent" placeholder="John Doe">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Child Name</label>
+                        <input type="text" class="form-input" id="childName" value="Test Child" placeholder="Alex">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Toy Name</label>
+                        <input type="text" class="form-input" id="toyName" value="Luna Test" placeholder="Luna">
+                    </div>
+                </div>
+
+                <button class="btn btn-success" onclick="createFullAccount()">✨ Create Complete Account</button>
+                <button class="btn btn-primary" onclick="addToyToAccount()">🦄 Add Toy to Existing Account</button>
+            </div>
+
+            <!-- Text Mode Section -->
+            <div class="section">
+                <h2>💬 Text Mode</h2>
+                <div class="message-input">
+                    <input
+                        type="text"
+                        class="form-input"
+                        id="textMessage"
+                        placeholder="Type a message to send..."
+                        onkeypress="if(event.key === 'Enter') sendText()"
+                    >
+                    <button class="btn btn-primary" onclick="sendText()">📤 Send</button>
+                </div>
+            </div>
+
+            <!-- Audio Mode Section -->
+            <div class="section">
+                <h2>🎤 Audio Mode</h2>
+                <div class="audio-controls">
+                    <button class="btn btn-success" id="recordBtn" onclick="startRecording()">
+                        🎤 Start Recording
+                    </button>
+                    <button class="btn btn-danger" id="stopBtn" onclick="stopRecording()" disabled>
+                        ⏹️ Stop Recording
+                    </button>
+                    <button class="btn btn-primary" id="sendAudioBtn" onclick="sendAudio()" disabled>
+                        📤 Send Audio
+                    </button>
+                </div>
+                <div class="recording-indicator" id="recordingIndicator">
+                    🔴 RECORDING... Speak now!
+                </div>
+                <audio id="audioPlayer" class="audio-player" controls style="display:none;"></audio>
+            </div>
+
+            <!-- Conversation Controls -->
+            <div class="section">
+                <h2>🎮 Controls</h2>
+                <button class="btn btn-danger" onclick="endConversation()">🛑 End Conversation</button>
+                <button class="btn btn-secondary" onclick="getStats()">📊 Get Stats</button>
+                <button class="btn btn-secondary" onclick="clearLogs()">🗑️ Clear Logs</button>
+            </div>
+
+            <!-- Stats Section -->
+            <div class="section" id="statsSection" style="display:none;">
+                <h2>📊 Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalConversations">0</div>
+                        <div class="stat-label">Total Conversations</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalDuration">0</div>
+                        <div class="stat-label">Total Minutes</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="flaggedConversations">0</div>
+                        <div class="stat-label">Flagged</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs Section -->
+            <div class="section">
+                <h2>📝 Logs</h2>
+                <div class="log-area" id="logArea"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let sessionId = generateSessionId();
+        let messageCount = 0;
+        let conversationActive = false;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recordedBlob = null;
+
+        // Initialize
+        document.getElementById('sessionId').textContent = sessionId;
+        updateStatus(false);
+        loadConfiguration();
+
+        function generateSessionId() {
+            const timestamp = Date.now();
+            const random = Math.random().toString(36).substring(2, 10);
+            return `esp32_web_${timestamp}_${random}`;
+        }
+
+        async function loadConfiguration() {
+            try {
+                log('Loading configuration from simulator_config.json...', 'info');
+                const response = await fetch('/simulator_config.json');
+
+                if (response.ok) {
+                    const config = await response.json();
+
+                    // Update form fields with loaded config
+                    document.getElementById('userId').value = config.user_id || 'test_user_123';
+                    document.getElementById('email').value = config.email || 'test@lunotoys.com';
+                    document.getElementById('childId').value = config.child_id || 'test_child_456';
+                    document.getElementById('toyId').value = config.toy_id || 'test_toy_789';
+                    document.getElementById('deviceId').value = config.device_id || config.toy_id || 'test_toy_789';
+                    document.getElementById('backendUrl').value = config.backend_url || 'http://localhost:5005';
+
+                    log(`✓ Configuration loaded: User ${config.user_id}`, 'success');
+                } else {
+                    log('⚠ Could not load config, using defaults', 'error');
+                }
+            } catch (error) {
+                log(`⚠ Failed to load config: ${error.message}`, 'error');
+                log('Using default configuration values', 'info');
+            }
+        }
+
+        function updateStatus(active) {
+            conversationActive = active;
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+
+            if (active) {
+                indicator.className = 'status-indicator status-active';
+                statusText.textContent = 'Active';
+            } else {
+                indicator.className = 'status-indicator status-idle';
+                statusText.textContent = 'Idle';
+            }
+        }
+
+        function log(message, type = 'info') {
+            const logArea = document.getElementById('logArea');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+
+            let color = 'log-info';
+            if (type === 'success') color = 'log-success';
+            if (type === 'error') color = 'log-error';
+
+            entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span><span class="${color}">${message}</span>`;
+            logArea.appendChild(entry);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logArea').innerHTML = '';
+            log('Logs cleared', 'info');
+        }
+
+        async function testConnection() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            log(`Testing connection to ${backendUrl}...`, 'info');
+
+            try {
+                const response = await fetch(backendUrl);
+                if (response.ok) {
+                    const text = await response.text();
+                    log(`✓ Backend is running: ${text}`, 'success');
+                } else {
+                    log(`⚠ Backend responded with status ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Connection failed: ${error.message}`, 'error');
+            }
+        }
+
+        function resetSession() {
+            sessionId = generateSessionId();
+            document.getElementById('sessionId').textContent = sessionId;
+            messageCount = 0;
+            document.getElementById('messageCount').textContent = messageCount;
+            updateStatus(false);
+            log('✓ New session started', 'success');
+        }
+
+        async function sendText() {
+            const text = document.getElementById('textMessage').value.trim();
+            if (!text) {
+                log('⚠ Please enter a message', 'error');
+                return;
+            }
+
+            const backendUrl = document.getElementById('backendUrl').value;
+            const userId = document.getElementById('userId').value;
+            const email = document.getElementById('email').value;
+            const childId = document.getElementById('childId').value;
+            const toyId = document.getElementById('toyId').value;
+            const deviceId = document.getElementById('deviceId').value;
+
+            log(`📤 Sending text: "${text}"`, 'info');
+
+            const payload = {
+                text: text,
+                session_id: sessionId,
+                user_id: userId,
+                child_id: childId,
+                toy_id: toyId
+            };
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${backendUrl}/text_upload`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Session-ID': sessionId,
+                        'X-User-ID': userId,
+                        'X-Email': email,
+                        'X-Child-ID': childId,
+                        'X-Toy-ID': toyId,
+                        'X-Device-ID': deviceId
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (response.ok) {
+                    log(`✓ Response received (${elapsed}s)`, 'success');
+
+                    // Get timing info
+                    const responseTime = response.headers.get('X-Response-Time');
+                    const gptTime = response.headers.get('X-GPT-Time');
+                    const ttsTime = response.headers.get('X-TTS-Time');
+
+                    if (responseTime) {
+                        log(`  Total: ${responseTime}s | GPT: ${gptTime}s | TTS: ${ttsTime}s`, 'info');
+                    }
+
+                    // Play audio response
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audioPlayer = document.getElementById('audioPlayer');
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.style.display = 'block';
+                    audioPlayer.play();
+
+                    messageCount++;
+                    document.getElementById('messageCount').textContent = messageCount;
+                    updateStatus(true);
+
+                    // Clear input
+                    document.getElementById('textMessage').value = '';
+                } else {
+                    const errorText = await response.text();
+                    log(`❌ Error ${response.status}: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Request failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    recordedBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    const audioUrl = URL.createObjectURL(recordedBlob);
+                    const audioPlayer = document.getElementById('audioPlayer');
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.style.display = 'block';
+
+                    document.getElementById('sendAudioBtn').disabled = false;
+                    log('✓ Recording saved. Click "Send Audio" to upload', 'success');
+                };
+
+                mediaRecorder.start();
+                log('🎤 Recording started...', 'info');
+
+                document.getElementById('recordBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('recordingIndicator').classList.add('active');
+
+            } catch (error) {
+                log(`❌ Failed to access microphone: ${error.message}`, 'error');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+
+                document.getElementById('recordBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('recordingIndicator').classList.remove('active');
+
+                log('⏹️ Recording stopped', 'info');
+            }
+        }
+
+        async function sendAudio() {
+            if (!recordedBlob) {
+                log('⚠ No audio recorded', 'error');
+                return;
+            }
+
+            const backendUrl = document.getElementById('backendUrl').value;
+            const userId = document.getElementById('userId').value;
+            const email = document.getElementById('email').value;
+            const childId = document.getElementById('childId').value;
+            const toyId = document.getElementById('toyId').value;
+            const deviceId = document.getElementById('deviceId').value;
+
+            log('📤 Uploading audio...', 'info');
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${backendUrl}/upload`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'audio/wav',
+                        'X-Session-ID': sessionId,
+                        'X-User-ID': userId,
+                        'X-Email': email,
+                        'X-Child-ID': childId,
+                        'X-Toy-ID': toyId,
+                        'X-Device-ID': deviceId
+                    },
+                    body: recordedBlob
+                });
+
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (response.ok) {
+                    log(`✓ Response received (${elapsed}s)`, 'success');
+
+                    // Get timing info
+                    const responseTime = response.headers.get('X-Response-Time');
+                    const sttTime = response.headers.get('X-STT-Time');
+                    const gptTime = response.headers.get('X-GPT-Time');
+                    const ttsTime = response.headers.get('X-TTS-Time');
+
+                    if (responseTime) {
+                        log(`  Total: ${responseTime}s | STT: ${sttTime}s | GPT: ${gptTime}s | TTS: ${ttsTime}s`, 'info');
+                    }
+
+                    // Play audio response
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audioPlayer = document.getElementById('audioPlayer');
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.play();
+
+                    messageCount++;
+                    document.getElementById('messageCount').textContent = messageCount;
+                    updateStatus(true);
+
+                    document.getElementById('sendAudioBtn').disabled = true;
+                    recordedBlob = null;
+                } else {
+                    const errorText = await response.text();
+                    log(`❌ Error ${response.status}: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Upload failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function endConversation() {
+            if (!conversationActive) {
+                log('⚠ No active conversation', 'error');
+                return;
+            }
+
+            const backendUrl = document.getElementById('backendUrl').value;
+            log('🛑 Ending conversation...', 'info');
+
+            try {
+                const response = await fetch(`${backendUrl}/api/conversations/end`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+
+                if (response.ok) {
+                    log(`✓ Conversation ended (${messageCount} messages sent)`, 'success');
+                    updateStatus(false);
+
+                    // Reset for new session
+                    sessionId = generateSessionId();
+                    document.getElementById('sessionId').textContent = sessionId;
+                    log(`New session: ${sessionId}`, 'info');
+                } else {
+                    const errorText = await response.text();
+                    log(`❌ Failed to end conversation: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Request failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function getStats() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            const userId = document.getElementById('userId').value;
+
+            log('📊 Fetching stats...', 'info');
+
+            try {
+                const response = await fetch(`${backendUrl}/api/users/${userId}/stats`);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const stats = data.stats || {};
+
+                    document.getElementById('totalConversations').textContent = stats.totalConversations || 0;
+                    document.getElementById('totalDuration').textContent = Math.floor((stats.totalConversationDurationSec || 0) / 60);
+                    document.getElementById('flaggedConversations').textContent = stats.flaggedConversations || 0;
+
+                    document.getElementById('statsSection').style.display = 'block';
+                    log('✓ Stats updated', 'success');
+                } else {
+                    log(`❌ Failed to fetch stats: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Request failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testAuthentication() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            const userId = document.getElementById('userId').value;
+            const email = document.getElementById('email').value;
+            const deviceId = document.getElementById('deviceId').value;
+
+            log('🔐 Testing authentication...', 'info');
+
+            try {
+                const response = await fetch(`${backendUrl}/auth/test`, {
+                    method: 'GET',
+                    headers: {
+                        'X-Session-ID': sessionId,
+                        'X-User-ID': userId,
+                        'X-Email': email,
+                        'X-Device-ID': deviceId
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✓ AUTHENTICATION SUCCESSFUL!', 'success');
+                    log(`  User: ${data.user_id}`, 'info');
+                    log(`  Email: ${data.email}`, 'info');
+                    log(`  Device: ${data.device_name} (${data.device_id})`, 'info');
+                    log(`  Status: ${data.device_status}`, 'info');
+                    log(`  Assigned to child: ${data.assigned_child || 'None'}`, 'info');
+                } else {
+                    const errorData = await response.json();
+                    log(`✗ AUTHENTICATION FAILED (${response.status})`, 'error');
+                    log(`  Error: ${errorData.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function createFullAccount() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            const email = document.getElementById('setupEmail').value.trim();
+            const displayName = document.getElementById('displayName').value.trim();
+            const childName = document.getElementById('childName').value.trim();
+            const toyName = document.getElementById('toyName').value.trim();
+
+            if (!email || !displayName || !childName || !toyName) {
+                log('⚠ Please fill in all fields (Email is required)', 'error');
+                return;
+            }
+
+            log('✨ Creating complete account...', 'info');
+
+            // Generate IDs
+            const timestamp = Date.now();
+            const userId = `user_${timestamp}`;
+            const childId = `child_${timestamp}`;
+            const toyId = `toy_${timestamp}`;
+
+            log(`  User ID: ${userId}`, 'info');
+            log(`  Email: ${email}`, 'info');
+            log(`  Child ID: ${childId}`, 'info');
+            log(`  Toy ID: ${toyId}`, 'info');
+
+            try {
+                const response = await fetch(`${backendUrl}/api/setup/create_account`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        email: email,
+                        display_name: displayName,
+                        child_id: childId,
+                        child_name: childName,
+                        toy_id: toyId,
+                        toy_name: toyName
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✓ Account created successfully!', 'success');
+
+                    // Update form with new IDs
+                    document.getElementById('userId').value = userId;
+                    document.getElementById('email').value = email;
+                    document.getElementById('childId').value = childId;
+                    document.getElementById('toyId').value = toyId;
+                    document.getElementById('deviceId').value = toyId;
+
+                    log('  Configuration updated with new account', 'success');
+                    log('  You can now test authentication!', 'info');
+                } else {
+                    try {
+                        const errorData = await response.json();
+                        log(`❌ Failed to create account: ${response.status}`, 'error');
+                        log(`  ${errorData.error}`, 'error');
+                        if (errorData.hint) {
+                            log(`  💡 Hint: ${errorData.hint}`, 'info');
+                        }
+                        if (response.status === 503) {
+                            log('  ⚠️  Firestore not initialized. Options:', 'error');
+                            log('     1. Run: python3 setup_test_data.py', 'info');
+                            log('     2. Or use existing test account:', 'info');
+                            log('        User ID: test_user_1763434576', 'info');
+                            log('        Email: test@lunotoys.com', 'info');
+                        }
+                    } catch {
+                        const errorText = await response.text();
+                        log(`  ${errorText}`, 'error');
+                    }
+                }
+            } catch (error) {
+                log(`❌ Request failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function addToyToAccount() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            const userId = document.getElementById('userId').value.trim();
+            const toyName = document.getElementById('toyName').value.trim();
+            const toyId = document.getElementById('toyId').value.trim();
+
+            if (!userId || !toyName || !toyId) {
+                log('⚠ Please fill in User ID, Toy Name, and Toy ID', 'error');
+                return;
+            }
+
+            log('🦄 Adding toy to account...', 'info');
+            log(`  User: ${userId}`, 'info');
+            log(`  Toy: ${toyName} (${toyId})`, 'info');
+
+            try {
+                const response = await fetch(`${backendUrl}/api/setup/add_toy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        toy_id: toyId,
+                        toy_name: toyName,
+                        assigned_child_id: document.getElementById('childId').value || null
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✓ Toy added successfully!', 'success');
+                    log(`  Toy ${toyId} now associated with user ${userId}`, 'success');
+
+                    // Update device ID
+                    document.getElementById('deviceId').value = toyId;
+
+                    log('  You can now test authentication!', 'info');
+                } else {
+                    const errorText = await response.text();
+                    log(`❌ Failed to add toy: ${response.status}`, 'error');
+                    log(`  ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Request failed: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
