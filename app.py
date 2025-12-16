@@ -1,9 +1,13 @@
 # ESP32 Toy Backend 123
+from dotenv import load_dotenv
 from flask import Flask, request, send_file, jsonify
 import os, datetime, time
 import struct
 import wave
 from google.cloud import firestore
+
+# Load environment variables from .env file
+load_dotenv()
 
 from whisper_stt import transcribe_audio
 from gpt_reply import get_gpt_reply

@@ -28,24 +28,26 @@ pip install -r requirements.txt
 
 ### Step 2: Configure Environment Variables (2 min)
 
-Create a `.env` file or export environment variables:
+Create a `.env` file in the backend directory:
 
 ```bash
-# OpenAI
-export OPENAI_API_KEY="sk-proj-YOUR_KEY_HERE"
+# Firebase Configuration
+FIREBASE_SERVICE_ACCOUNT_PATH=firebase-credentials.json
 
-# ElevenLabs
-export ELEVENLABS_API_KEY="YOUR_KEY_HERE"
+# API Keys
+OPENAI_API_KEY=sk-proj-your_key_here
+ELEVENLABS_API_KEY=your_elevenlabs_key_here
+SPEECHIFY_API_KEY=your_speechify_key_here
+ELEVENLABS_VOICE_ID=5oDR2Spw4ffxVYWXiJC2
 
-# Firebase - Point to your service account key
-export FIREBASE_SERVICE_ACCOUNT_PATH="/path/to/luno-companion-app-dev-firebase-adminsdk.json"
+# Flask Configuration
+PORT=5005
 ```
 
 **Get your Firebase Service Account Key:**
-1. Go to [Firebase Console](https://console.firebase.google.com/project/luno-companion-app-dev)
-2. Project Settings → Service Accounts
-3. Click "Generate New Private Key"
-4. Save the JSON file and point `FIREBASE_SERVICE_ACCOUNT_PATH` to it
+1. Go to [Firebase Console](https://console.firebase.google.com/project/luno-companion-app-dev/settings/serviceaccounts/adminsdk)
+2. Click "Generate New Private Key"
+3. Save as `firebase-credentials.json` in the backend directory
 
 ### Step 3: Start the Backend (1 min)
 
@@ -268,24 +270,24 @@ const firebaseConfig = {
 ### "Firebase initialization failed"
 
 ```bash
-# Check if service account path is correct
-echo $FIREBASE_SERVICE_ACCOUNT_PATH
+# Verify .env file exists
+cat .env
 
-# Verify file exists
-ls -l $FIREBASE_SERVICE_ACCOUNT_PATH
+# Verify firebase-credentials.json exists
+ls -la firebase-credentials.json
 
-# Check file permissions
-chmod 600 $FIREBASE_SERVICE_ACCOUNT_PATH
+# Test Firebase connection
+python3 -c "from dotenv import load_dotenv; load_dotenv(); from firebase_config import initialize_firebase; db = initialize_firebase(); print('✅ OK' if db else '❌ Failed')"
 ```
 
 ### "OpenAI API error"
 
 ```bash
-# Verify API key is set
-echo $OPENAI_API_KEY
+# Verify API key is set in .env
+grep OPENAI_API_KEY .env
 
 # Test OpenAI connection
-python -c "from openai import OpenAI; client = OpenAI(); print('OK')"
+python3 -c "from dotenv import load_dotenv; load_dotenv(); from openai import OpenAI; client = OpenAI(); print('✅ OK')"
 ```
 
 ### "Connection refused"
@@ -321,7 +323,7 @@ pip install pyaudio
 
 ### For Production
 
-1. **Deploy Backend** - See [README.md](./README.md#deployment)
+1. **Deploy Backend** - See [README.md](../README.md#deployment)
 2. **Configure Frontend** - Connect React app to backend
 3. **Set up Monitoring** - Firebase Console + Sentry
 4. **Configure Firestore Rules** - Production security rules
@@ -340,9 +342,10 @@ pip install pyaudio
 
 | Document | Purpose |
 |----------|---------|
-| [README.md](./README.md) | Complete system documentation |
+| [README.md](../README.md) | Complete system documentation |
+| [SETUP.md](./SETUP.md) | Detailed setup and configuration |
+| [AUTHENTICATION.md](./AUTHENTICATION.md) | Authentication system guide |
 | [SIMULATOR_GUIDE.md](./SIMULATOR_GUIDE.md) | How to use CLI and Web simulators |
-| [FIRESTORE_INTEGRATION_GUIDE.md](./FIRESTORE_INTEGRATION_GUIDE.md) | Database setup and structure |
 | [ESP32_INTEGRATION_EXAMPLE.md](./ESP32_INTEGRATION_EXAMPLE.md) | Hardware integration code |
 
 ---

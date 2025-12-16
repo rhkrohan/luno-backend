@@ -123,8 +123,13 @@ luno-platform/
 │   ├── tts_elevenlabs.py             # Text-to-speech service
 │   ├── requirements.txt              # Python dependencies
 │   ├── README.md                     # This file
-│   ├── FIRESTORE_INTEGRATION_GUIDE.md
-│   └── ESP32_INTEGRATION_EXAMPLE.md
+│   └── docs/                         # Documentation
+│       ├── QUICK_START.md
+│       ├── SETUP.md
+│       ├── AUTHENTICATION.md
+│       ├── SIMULATOR_GUIDE.md
+│       ├── ESP32_INTEGRATION_EXAMPLE.md
+│       └── DOCS_SUMMARY.md
 │
 ├── frontend/                         # React Frontend
 │   ├── src/
@@ -1240,8 +1245,17 @@ Set up alerts for:
 
 ## 🎓 Additional Resources
 
-- [Firestore Integration Guide](./FIRESTORE_INTEGRATION_GUIDE.md) - Detailed Firestore setup
-- [ESP32 Integration Examples](./ESP32_INTEGRATION_EXAMPLE.md) - ESP32 code samples
+### Documentation
+
+- [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
+- [Setup Guide](./docs/SETUP.md) - Detailed setup instructions
+- [Authentication Guide](./docs/AUTHENTICATION.md) - Auth system documentation
+- [Simulator Guide](./docs/SIMULATOR_GUIDE.md) - Testing with simulators
+- [ESP32 Integration Examples](./docs/ESP32_INTEGRATION_EXAMPLE.md) - Hardware integration
+- [Documentation Summary](./docs/DOCS_SUMMARY.md) - Navigation guide
+
+### External Resources
+
 - [Firebase Documentation](https://firebase.google.com/docs)
 - [OpenAI API Reference](https://platform.openai.com/docs)
 - [Flask Documentation](https://flask.palletsprojects.com/)
