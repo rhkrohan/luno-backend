@@ -227,7 +227,6 @@ class FirestoreService:
                 "stats.totalConversations": firestore.Increment(1),
                 "stats.totalConversationDurationSec": firestore.Increment(duration_minutes * 60),
                 "stats.lastConversationAt": firestore.SERVER_TIMESTAMP,
-                "lastActivityAt": firestore.SERVER_TIMESTAMP,
             })
 
             # If flagged, update flagged stats

@@ -519,9 +519,10 @@ def test_auth():
     Test endpoint to verify authentication is working
 
     Headers required:
-        X-User-ID: Parent user ID
-        X-Device-ID: Device identifier
-        X-Email: User email
+        X-Device-ID: Device identifier (required)
+        X-User-Email: User email (required, or use X-Email for legacy support)
+        OR
+        X-User-ID: Parent user ID (alternative to X-User-Email)
         X-Session-ID: Session identifier (optional)
 
     Returns:
@@ -552,9 +553,9 @@ def get_device_info():
     - On every boot (to check for assignment updates)
 
     Headers required:
-        X-Device-ID: Device MAC address
-        X-Email: Parent email (from pairing)
-        X-User-ID: Parent user ID (optional, can be looked up from email)
+        X-Device-ID: Device MAC address (required)
+        X-User-Email: Parent email from pairing (required, or use X-Email for legacy)
+        X-User-ID: Parent user ID (optional alternative to X-User-Email)
         X-Session-ID: Session identifier (optional)
 
     Returns:
@@ -825,15 +826,12 @@ def create_account():
                 "notifications": True,
                 "theme": "light"
             },
-            "childrenCount": 1,
-            "toys": [toy_id],
             "stats": {
                 "totalConversations": 0,
                 "totalConversationDurationSec": 0,
                 "flaggedConversations": 0,
                 "lastConversationAt": None,
-                "lastFlaggedAt": None,
-                "lastActivityAt": firestore.SERVER_TIMESTAMP
+                "lastFlaggedAt": None
             }
         }
 

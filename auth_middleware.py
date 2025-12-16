@@ -22,10 +22,13 @@ def validate_auth_headers():
     Extract and validate required headers.
 
     ESP32 can authenticate with EITHER:
-    - X-Email + X-Device-ID (ESP32 knows email from WiFi pairing)
+    - X-User-Email (or X-Email) + X-Device-ID (ESP32 knows email from WiFi pairing)
     - X-User-ID + X-Device-ID (for testing/simulator)
+
+    Note: Accepts both X-Email and X-User-Email for backward compatibility
     """
-    email = request.headers.get("X-Email")
+    # Accept both X-User-Email (mobile app standard) and X-Email (legacy)
+    email = request.headers.get("X-User-Email") or request.headers.get("X-Email")
     user_id = request.headers.get("X-User-ID")
     device_id = request.headers.get("X-Device-ID")
     session_id = request.headers.get("X-Session-ID", "default")
@@ -34,7 +37,7 @@ def validate_auth_headers():
         raise AuthenticationError("Missing required header: X-Device-ID", 400)
 
     if not email and not user_id:
-        raise AuthenticationError("Missing required header: X-Email or X-User-ID", 400)
+        raise AuthenticationError("Missing required header: X-User-Email (or X-Email) or X-User-ID", 400)
 
     return email, user_id, device_id, session_id
 
