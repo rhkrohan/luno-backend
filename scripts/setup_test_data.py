@@ -151,7 +151,7 @@ def update_simulator_config(user_id, child_id, toy_id):
         "save_conversations": True
     }
 
-    with open("simulator_config.json", "w") as f:
+    with open("simulators/simulator_config.json", "w") as f:
         json.dump(config, f, indent=2)
 
     print("✓ Updated simulator_config.json\n")

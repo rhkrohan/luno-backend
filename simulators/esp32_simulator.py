@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Configuration
-CONFIG_FILE = "simulator_config.json"
+CONFIG_FILE = "simulators/simulator_config.json"
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5005")
 CHUNK = 1024
 FORMAT = pyaudio.paInt16

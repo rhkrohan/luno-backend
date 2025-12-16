@@ -9,7 +9,7 @@ import json
 import sys
 
 # Configuration from simulator_config.json
-CONFIG_FILE = "simulator_config.json"
+CONFIG_FILE = "simulators/simulator_config.json"
 
 def load_config():
     """Load configuration"""

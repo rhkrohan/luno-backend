@@ -212,7 +212,7 @@ PORT=5005
 python app.py
 
 # Production
-gunicorn -c gunicorn.conf.py app:app
+gunicorn -c config/gunicorn.conf.py app:app
 ```
 
 Backend will be available at: `http://localhost:5005`
@@ -1090,7 +1090,7 @@ COPY . .
 ENV PORT=5005
 EXPOSE 5005
 
-CMD ["gunicorn", "-c", "gunicorn.conf.py", "app:app"]
+CMD ["gunicorn", "-c", "config/gunicorn.conf.py", "app:app"]
 ```
 
 ```bash

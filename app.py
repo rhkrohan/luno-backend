@@ -183,12 +183,12 @@ def index():
 @app.route("/simulator")
 def simulator():
     """Serve the web-based ESP32 simulator"""
-    return send_file("simulator.html")
+    return send_file("simulators/simulator.html")
 
 @app.route("/simulator_config.json")
 def simulator_config():
     """Serve the simulator configuration file"""
-    return send_file("simulator_config.json")
+    return send_file("simulators/simulator_config.json")
 
 @app.route("/upload", methods=["POST"])
 @require_device_auth

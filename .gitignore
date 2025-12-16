@@ -51,6 +51,7 @@ Thumbs.db
 # Temporary files
 temp/
 simulator_temp/
+backups/
 *.tmp
 *.log
 
