@@ -441,6 +441,174 @@ class FirestoreService:
             print(f"[ERROR] Failed to get child conversations: {e}")
             return []
 
+    # ==================== SESSION OPERATIONS ====================
+
+    def create_session(self, session_id, user_id, device_id, child_id=None, toy_id=None, conversation_id=None):
+        """
+        Create new session document in Firestore
+
+        Args:
+            session_id: Unique session ID
+            user_id: User ID
+            device_id: Device/toy ID
+            child_id: Optional child ID
+            toy_id: Optional toy ID
+            conversation_id: Associated conversation ID
+
+        Returns:
+            session_id if successful, None otherwise
+        """
+        if not self.is_available():
+            return None
+
+        try:
+            from google.cloud import firestore
+            now = firestore.SERVER_TIMESTAMP
+            inactivity_timeout = 1800  # 30 minutes in seconds
+
+            session_data = {
+                "sessionId": session_id,
+                "deviceId": device_id,
+                "userId": user_id,
+                "childId": child_id,
+                "toyId": toy_id,
+                "conversationId": conversation_id,
+                "status": "active",
+                "createdAt": now,
+                "lastActivityAt": now,
+                "endedAt": None,
+                "messageCount": 0
+            }
+
+            session_ref = self.db.collection("users").document(user_id)\
+                .collection("sessions").document(session_id)
+            session_ref.set(session_data)
+
+            print(f"[INFO] Created session: {session_id}")
+            return session_id
+
+        except Exception as e:
+            print(f"[ERROR] Failed to create session: {e}")
+            return None
+
+    def get_active_session(self, device_id, user_id):
+        """
+        Get active session for device-user pair
+
+        Args:
+            device_id: Device/toy ID
+            user_id: User ID
+
+        Returns:
+            dict: Session data with 'id' field, or None if not found
+        """
+        if not self.is_available():
+            return None
+
+        try:
+            sessions_ref = self.db.collection("users").document(user_id)\
+                .collection("sessions")
+
+            query = sessions_ref.where("deviceId", "==", device_id)\
+                .where("status", "==", "active")\
+                .limit(1)
+
+            sessions = list(query.stream())
+            if sessions:
+                session_data = sessions[0].to_dict()
+                session_data["id"] = sessions[0].id
+                return session_data
+
+            return None
+
+        except Exception as e:
+            print(f"[ERROR] Failed to get active session: {e}")
+            return None
+
+    def update_session_activity(self, user_id, session_id, message_count=None):
+        """
+        Update session activity timestamp
+
+        Args:
+            user_id: User ID
+            session_id: Session ID
+            message_count: Optional message count to update
+        """
+        if not self.is_available():
+            return
+
+        try:
+            from google.cloud import firestore
+            session_ref = self.db.collection("users").document(user_id)\
+                .collection("sessions").document(session_id)
+
+            update_data = {
+                "lastActivityAt": firestore.SERVER_TIMESTAMP
+            }
+
+            if message_count is not None:
+                update_data["messageCount"] = message_count
+
+            session_ref.update(update_data)
+
+        except Exception as e:
+            print(f"[ERROR] Failed to update session activity: {e}")
+
+    def end_session(self, user_id, session_id, reason="explicit"):
+        """
+        End a session
+
+        Args:
+            user_id: User ID
+            session_id: Session ID
+            reason: Reason for ending (explicit, inactivity_timeout, etc.)
+        """
+        if not self.is_available():
+            return
+
+        try:
+            from google.cloud import firestore
+            session_ref = self.db.collection("users").document(user_id)\
+                .collection("sessions").document(session_id)
+
+            session_ref.update({
+                "status": "ended",
+                "endedAt": firestore.SERVER_TIMESTAMP,
+                "endReason": reason
+            })
+
+            print(f"[INFO] Ended session {session_id}, reason: {reason}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to end session: {e}")
+
+    def get_session(self, user_id, session_id):
+        """
+        Get session details
+
+        Args:
+            user_id: User ID
+            session_id: Session ID
+
+        Returns:
+            dict: Session data or None if not found
+        """
+        if not self.is_available():
+            return None
+
+        try:
+            session_ref = self.db.collection("users").document(user_id)\
+                .collection("sessions").document(session_id)
+            session_doc = session_ref.get()
+
+            if session_doc.exists:
+                return session_doc.to_dict()
+            return None
+
+        except Exception as e:
+            print(f"[ERROR] Failed to get session: {e}")
+            return None
+
 
 # Global service instance
 firestore_service = FirestoreService()

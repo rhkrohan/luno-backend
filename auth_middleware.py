@@ -31,7 +31,11 @@ def validate_auth_headers():
     email = request.headers.get("X-User-Email") or request.headers.get("X-Email")
     user_id = request.headers.get("X-User-ID")
     device_id = request.headers.get("X-Device-ID")
-    session_id = request.headers.get("X-Session-ID", "default")
+    session_id = request.headers.get("X-Session-ID")
+
+    # Log if ESP32 still sends session ID (backward compatibility during migration)
+    if session_id:
+        print(f"[INFO] Ignoring ESP32-provided session ID: {session_id} (backend manages sessions)")
 
     if not device_id:
         raise AuthenticationError("Missing required header: X-Device-ID", 400)
@@ -44,8 +48,9 @@ def validate_auth_headers():
 
 def check_cache(email, user_id, device_id, session_id):
     # Cache key uses email OR user_id (whichever is provided)
+    # Note: session_id removed from cache key (sessions managed separately by session_manager)
     cache_key = email if email else user_id
-    key = f"{cache_key}:{device_id}:{session_id}"
+    key = f"{cache_key}:{device_id}"
     entry = auth_cache.get(key)
 
     if entry and entry["expires_at"] > time.time():
@@ -56,8 +61,9 @@ def check_cache(email, user_id, device_id, session_id):
 
 def write_cache(email, user_id, device_id, session_id, auth_context):
     # Cache key uses email OR user_id (whichever is provided)
+    # Note: session_id removed from cache key (sessions managed separately by session_manager)
     cache_key = email if email else user_id
-    key = f"{cache_key}:{device_id}:{session_id}"
+    key = f"{cache_key}:{device_id}"
     auth_cache[key] = {
         "auth_context": auth_context,
         "expires_at": time.time() + CACHE_TTL_SECONDS,

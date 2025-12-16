@@ -17,14 +17,39 @@ CONVERSATIONS = {}
 # Format: session_id -> {user_id, child_id, conversation_id, toy_id}
 SESSION_METADATA = {}
 
+def clear_session_history(session_id):
+    """
+    Clear conversation history for a session
+
+    Args:
+        session_id: Session ID to clear history for
+    """
+    if session_id in CONVERSATIONS:
+        del CONVERSATIONS[session_id]
+        print(f"[INFO] Cleared conversation history for session {session_id}")
+
+
+def get_session_message_count(session_id):
+    """
+    Get message count for a session
+
+    Args:
+        session_id: Session ID
+
+    Returns:
+        int: Number of messages in session history
+    """
+    return len(CONVERSATIONS.get(session_id, []))
+
+
 def get_gpt_reply(user_text, session_id="default", user_id=None, child_id=None, conversation_id=None):
     try:
         print(f"[INFO] Session: {session_id}, Message: {user_text}")
-        
+
         # Get conversation history for this session
         if session_id not in CONVERSATIONS:
             CONVERSATIONS[session_id] = []
-        
+
         history = CONVERSATIONS[session_id]
         
         # Build messages with context (keep last 6 messages for memory)

@@ -43,7 +43,7 @@ The Luno backend uses a **custom header-based authentication system** with Fires
 └────────┬────────┘
          │
          │ Step 1: Check Cache
-         │ ├─ Cache Key: email:device_id:session_id
+         │ ├─ Cache Key: email:device_id (session removed)
          │ └─ TTL: 5 minutes
          │
          ├─ Cache Hit? ────────► Continue to endpoint
@@ -82,11 +82,13 @@ All authenticated requests must include:
 | `X-Device-ID` | ✅ Yes | Device/toy identifier | `toy_abc123` or `AA:BB:CC:DD:EE:FF` |
 | `X-Email` | ✅ Yes* | User's email address | `parent@example.com` |
 | `X-User-ID` | ✅ Yes* | Firebase user ID | `user_abc123` |
-| `X-Session-ID` | ❌ No | Session identifier | `esp32_session_123` |
+| `X-Session-ID` | ❌ No | ⚠️ **DEPRECATED** - Backend manages sessions | `esp32_session_123` |
 | `X-Child-ID` | ❌ No | Child ID (for conversations) | `child_xyz789` |
 | `X-Toy-ID` | ❌ No | Toy ID (for conversations) | `toy_abc123` |
 
 *One of `X-Email` or `X-User-ID` must be provided
+
+> **Note:** As of the latest update, **X-Session-ID is deprecated**. The backend now automatically generates and manages sessions based on device_id + user_id. See [SESSION_MANAGEMENT.md](./SESSION_MANAGEMENT.md) for details.
 
 ### Authentication Options
 
@@ -175,7 +177,7 @@ void sendRequest() {
     http.addHeader("X-Email", userEmail);
     http.addHeader("X-User-ID", userId);
     http.addHeader("X-Device-ID", deviceId);
-    http.addHeader("X-Session-ID", currentSessionId);
+    // X-Session-ID no longer needed - backend manages sessions
     http.addHeader("X-Child-ID", activeChildId);
     http.addHeader("X-Toy-ID", toyId);
 
@@ -215,7 +217,8 @@ session_id = request.headers.get("X-Session-ID", "default")
 ### Step 3: Cache Lookup
 
 ```python
-cache_key = f"{email or user_id}:{device_id}:{session_id}"
+# Note: Session ID removed from cache key (sessions managed separately)
+cache_key = f"{email or user_id}:{device_id}"
 cached_context = auth_cache.get(cache_key)
 
 if cached_context and not expired:
@@ -337,7 +340,7 @@ python esp32_simulator.py
 ✅ **Unauthorized device access** - Devices must be registered in Firestore
 ✅ **Email spoofing** - Email must match Firestore user record
 ✅ **Device hijacking** - Device must exist in user's toys collection
-✅ **Session isolation** - Cache keys include session_id
+✅ **Device isolation** - Cache keys per device-user pair
 
 ### What This System Does NOT Protect Against
 
@@ -473,6 +476,7 @@ Potential improvements to the authentication system:
 ## Related Documentation
 
 - [SETUP.md](./SETUP.md) - Backend setup and configuration
+- [SESSION_MANAGEMENT.md](./SESSION_MANAGEMENT.md) - Backend session management system
 - [SIMULATOR_GUIDE.md](./SIMULATOR_GUIDE.md) - Testing with simulators
 - [ESP32_INTEGRATION_EXAMPLE.md](./ESP32_INTEGRATION_EXAMPLE.md) - Hardware implementation
 - [README.md](../README.md) - Complete system documentation

@@ -4,6 +4,7 @@ from flask import Flask, request, send_file, jsonify
 import os, datetime, time
 import struct
 import wave
+import threading
 from google.cloud import firestore
 
 # Load environment variables from .env file
@@ -11,10 +12,11 @@ load_dotenv()
 
 from whisper_stt import transcribe_audio
 from gpt_reply import get_gpt_reply
-from tts_elevenlabs import synthesize_speech
+from backups.tts import synthesize_speech  # Using OpenAI TTS (ElevenLabs has payment issue)
 from firebase_config import initialize_firebase
 from firestore_service import firestore_service
 from auth_middleware import require_device_auth
+from session_manager import SessionManager
 
 app = Flask(__name__)
 TEMP_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp")
@@ -25,83 +27,30 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 # Initialize Firebase on startup
 initialize_firebase()
 
+# Initialize session manager (backend-managed sessions)
+session_manager = SessionManager(firestore_service)
+
 # Track active conversations: session_id -> {conversation_id, user_id, child_id, start_time}
-ACTIVE_CONVERSATIONS = {}
+# Note: This dict is now managed by session_manager (kept for backward compatibility)
+ACTIVE_CONVERSATIONS = session_manager.ACTIVE_CONVERSATIONS
 
+# Background session cleanup task
+def run_cleanup_loop():
+    """Background thread to cleanup expired sessions every 10 minutes"""
+    while True:
+        time.sleep(600)  # 10 minutes
+        try:
+            session_manager.cleanup_expired_sessions()
+        except Exception as e:
+            print(f"[ERROR] Session cleanup failed: {e}")
 
-def get_or_create_conversation(session_id, user_id, child_id, toy_id=None):
-    """
-    Get existing conversation for session or create a new one
+# Start cleanup thread as daemon (will exit when main program exits)
+cleanup_thread = threading.Thread(target=run_cleanup_loop, daemon=True)
+cleanup_thread.start()
+print("[INFO] Background session cleanup task started")
 
-    Args:
-        session_id: ESP32 session ID
-        user_id: Parent user ID
-        child_id: Child ID
-        toy_id: Optional toy ID
-
-    Returns:
-        conversation_id: The active conversation ID
-    """
-    # Check if conversation already exists for this session
-    if session_id in ACTIVE_CONVERSATIONS:
-        conv_data = ACTIVE_CONVERSATIONS[session_id]
-        print(f"[INFO] Using existing conversation {conv_data['conversation_id']} for session {session_id}")
-        return conv_data['conversation_id']
-
-    # Create new conversation in Firestore
-    conversation_id = firestore_service.create_conversation(
-        user_id=user_id,
-        child_id=child_id,
-        toy_id=toy_id,
-        conversation_type="conversation"
-    )
-
-    if conversation_id:
-        # Track active conversation
-        ACTIVE_CONVERSATIONS[session_id] = {
-            'conversation_id': conversation_id,
-            'user_id': user_id,
-            'child_id': child_id,
-            'toy_id': toy_id,
-            'start_time': time.time(),
-            'message_count': 0,
-        }
-        print(f"[INFO] Created new conversation {conversation_id} for session {session_id}")
-    else:
-        print(f"[WARNING] Failed to create conversation in Firestore for session {session_id}")
-
-    return conversation_id
-
-
-def end_conversation_session(session_id):
-    """
-    End a conversation session and update Firestore
-
-    Args:
-        session_id: ESP32 session ID
-    """
-    if session_id not in ACTIVE_CONVERSATIONS:
-        print(f"[WARNING] No active conversation found for session {session_id}")
-        return
-
-    conv_data = ACTIVE_CONVERSATIONS[session_id]
-
-    # Calculate duration
-    duration_seconds = time.time() - conv_data['start_time']
-    duration_minutes = int(duration_seconds / 60)
-
-    # End conversation in Firestore
-    firestore_service.end_conversation(
-        user_id=conv_data['user_id'],
-        child_id=conv_data['child_id'],
-        conversation_id=conv_data['conversation_id'],
-        duration_minutes=duration_minutes
-    )
-
-    # Remove from active conversations
-    del ACTIVE_CONVERSATIONS[session_id]
-
-    print(f"[INFO] Ended conversation session {session_id}, duration: {duration_minutes}m")
+# Old get_or_create_conversation() and end_conversation_session() functions removed
+# Session management now handled by session_manager
 
 
 def decompress_adpcm_to_wav(adpcm_data, output_path, sample_rate=16000):
@@ -202,11 +151,11 @@ def upload_audio():
     input_path = os.path.join(TEMP_DIR, f"input_{timestamp}.wav")
     adpcm_path = os.path.join(TEMP_DIR, f"adpcm_{timestamp}.bin")
 
-    # Get session ID and metadata from headers
-    session_id = request.headers.get('X-Session-ID', 'esp32_audio_default')
-    user_id = request.headers.get('X-User-ID')
+    # Get device and user from auth context (backend-managed sessions)
+    device_id = request.auth_context.get('device_id')
+    user_id = request.auth_context.get('user_id')
     child_id = request.headers.get('X-Child-ID')
-    toy_id = request.headers.get('X-Toy-ID')
+    toy_id = request.headers.get('X-Toy-ID') or device_id
 
     # Fallback: If child_id not provided, use toy's assigned child
     if not child_id and hasattr(request, 'auth_context'):
@@ -214,13 +163,21 @@ def upload_audio():
         if child_id:
             print(f"[INFO] Using toy's assigned child ID: {child_id}")
 
-    # Get or create conversation if metadata is provided
-    conversation_id = None
-    if user_id and child_id:
-        conversation_id = get_or_create_conversation(session_id, user_id, child_id, toy_id)
-        print(f"[INFO] Conversation ID: {conversation_id}")
-    else:
-        print(f"[WARNING] Missing user/child metadata - Firestore tracking disabled for this request")
+    # Get or create session (backend-managed)
+    session_data = session_manager.get_or_create_session(
+        device_id=device_id,
+        user_id=user_id,
+        child_id=child_id,
+        toy_id=toy_id
+    )
+
+    if not session_data:
+        print(f"[ERROR] Failed to create session for device {device_id}")
+        return jsonify({"error": "Session creation failed"}), 500
+
+    session_id = session_data['session_id']
+    conversation_id = session_data['conversation_id']
+    print(f"[INFO] Session ID: {session_id}, Conversation ID: {conversation_id}")
 
     if "audio" in request.files:               # multipart
         # Save the uploaded file temporarily
@@ -323,6 +280,9 @@ def upload_audio():
     print(f"Audio file size: {file_size} bytes")
     print(f"=== END TIMING ANALYSIS ===\n")
     
+    # Update session activity
+    session_manager.update_session_activity(session_id, user_id)
+
     response = send_file(output_path, mimetype="audio/wav", as_attachment=False)
     response.headers["Content-Length"] = str(file_size)
     response.headers["Connection"] = "keep-alive"
@@ -428,12 +388,12 @@ def upload_text():
             return jsonify({"error": "Expected JSON with 'text' field"}), 400
 
         user_text = data['text']
-        session_id = data.get('session_id', 'esp32_default')  # ESP32 can send session ID
 
-        # Get metadata for Firestore tracking
-        user_id = data.get('user_id') or request.headers.get('X-User-ID')
+        # Get device and user from auth context (backend-managed sessions)
+        device_id = request.auth_context.get('device_id')
+        user_id = request.auth_context.get('user_id')
         child_id = data.get('child_id') or request.headers.get('X-Child-ID')
-        toy_id = data.get('toy_id') or request.headers.get('X-Toy-ID')
+        toy_id = data.get('toy_id') or request.headers.get('X-Toy-ID') or device_id
 
         # Fallback: If child_id not provided, use toy's assigned child
         if not child_id and hasattr(request, 'auth_context'):
@@ -441,17 +401,25 @@ def upload_text():
             if child_id:
                 print(f"[INFO] Using toy's assigned child ID: {child_id}")
 
-        print(f"[INFO] Received text from local STT: {user_text} (Session: {session_id})")
+        print(f"[INFO] Received text from local STT: {user_text}")
     except Exception as e:
         return jsonify({"error": f"Invalid JSON: {str(e)}"}), 400
 
-    # Get or create conversation if metadata is provided
-    conversation_id = None
-    if user_id and child_id:
-        conversation_id = get_or_create_conversation(session_id, user_id, child_id, toy_id)
-        print(f"[INFO] Conversation ID: {conversation_id}")
-    else:
-        print(f"[WARNING] Missing user/child metadata - Firestore tracking disabled for this request")
+    # Get or create session (backend-managed)
+    session_data = session_manager.get_or_create_session(
+        device_id=device_id,
+        user_id=user_id,
+        child_id=child_id,
+        toy_id=toy_id
+    )
+
+    if not session_data:
+        print(f"[ERROR] Failed to create session for device {device_id}")
+        return jsonify({"error": "Session creation failed"}), 500
+
+    session_id = session_data['session_id']
+    conversation_id = session_data['conversation_id']
+    print(f"[INFO] Session ID: {session_id}, Conversation ID: {conversation_id}")
 
     timing_log["text_received"] = time.time()
 
@@ -501,7 +469,10 @@ def upload_text():
     print(f"Audio file size: {file_size} bytes")
     print(f"NOTE: STT was done locally on ESP32 (not measured here)")
     print(f"=== END TIMING ANALYSIS ===\n")
-    
+
+    # Update session activity
+    session_manager.update_session_activity(session_id, user_id)
+
     response = send_file(output_path, mimetype="audio/wav", as_attachment=False)
     response.headers["Content-Length"] = str(file_size)
     response.headers["Connection"] = "keep-alive"
@@ -633,19 +604,33 @@ def end_conversation():
     """
     End a conversation session
 
-    Request body:
-    {
-        "session_id": "esp32_session_123"
-    }
+    Request body can include:
+    - session_id: Explicit session ID (for backward compatibility)
+    - OR device_id + user_id: To lookup active session
     """
     try:
         data = request.get_json()
         session_id = data.get('session_id')
+        device_id = data.get('device_id')
+        user_id = data.get('user_id')
+
+        # Try to get session_id from device+user if not explicitly provided
+        if not session_id and device_id and user_id:
+            session_id = session_manager.get_active_session_id(device_id, user_id)
+            if not session_id:
+                return jsonify({"error": "No active session found for device-user pair"}), 404
 
         if not session_id:
-            return jsonify({"error": "session_id is required"}), 400
+            return jsonify({"error": "session_id (or device_id + user_id) is required"}), 400
 
-        end_conversation_session(session_id)
+        # Get user_id for session if not provided
+        if not user_id and session_id in ACTIVE_CONVERSATIONS:
+            user_id = ACTIVE_CONVERSATIONS[session_id].get('user_id')
+
+        if not user_id:
+            return jsonify({"error": "Could not determine user_id for session"}), 400
+
+        session_manager.end_session(session_id, user_id, reason="explicit")
 
         return jsonify({
             "success": True,

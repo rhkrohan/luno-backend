@@ -1,14 +1,17 @@
 # ESP32 Integration Examples
 
+> **⚠️ Updated:** Sessions are now backend-managed! ESP32 no longer needs to generate or send session IDs. See [SESSION_MANAGEMENT.md](./SESSION_MANAGEMENT.md) for details.
+
 ## Required Headers
 
 All requests to `/upload` and `/text_upload` must include these headers:
 
 ```cpp
-X-Session-ID: <unique_session_id>
-X-User-ID: <firebase_user_id>
-X-Child-ID: <firebase_child_id>
-X-Toy-ID: <firebase_toy_id>
+X-Device-ID: <device_identifier>      // Required for auth
+X-User-Email: <user_email>            // Or X-User-ID
+X-Child-ID: <firebase_child_id>       // Optional
+X-Toy-ID: <firebase_toy_id>           // Optional
+// X-Session-ID is DEPRECATED - backend manages sessions automatically
 ```
 
 ## Arduino/ESP32 Code Examples
@@ -24,11 +27,11 @@ void sendAudioToBackend(uint8_t* audioData, size_t audioLength) {
   // Server endpoint
   http.begin("http://your-server.com:5005/upload");
 
-  // Add required headers
+  // Add required headers (NO session ID needed!)
   http.addHeader("Content-Type", "audio/adpcm");
   http.addHeader("X-Audio-Format", "adpcm");
-  http.addHeader("X-Session-ID", sessionId);          // Global session ID
-  http.addHeader("X-User-ID", userId);                // From pairing
+  http.addHeader("X-Device-ID", deviceId);            // Device identifier
+  http.addHeader("X-User-Email", userEmail);          // Or X-User-ID
   http.addHeader("X-Child-ID", activeChildId);        // Active child
   http.addHeader("X-Toy-ID", toyId);                  // This toy's ID
 
@@ -75,19 +78,17 @@ void sendTextToBackend(const char* transcribedText) {
   // Server endpoint
   http.begin("http://your-server.com:5005/text_upload");
 
-  // Add headers
+  // Add headers (NO session ID needed!)
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-User-ID", userId);
+  http.addHeader("X-Device-ID", deviceId);
+  http.addHeader("X-User-Email", userEmail);        // Or X-User-ID
   http.addHeader("X-Child-ID", activeChildId);
   http.addHeader("X-Toy-ID", toyId);
 
   // Create JSON payload
   StaticJsonDocument<512> doc;
   doc["text"] = transcribedText;
-  doc["session_id"] = sessionId;
-  doc["user_id"] = userId;        // Can be in JSON or headers
-  doc["child_id"] = activeChildId;
-  doc["toy_id"] = toyId;
+  // Backend manages sessions - no session_id needed!
 
   String jsonPayload;
   serializeJson(doc, jsonPayload);
@@ -109,7 +110,9 @@ void sendTextToBackend(const char* transcribedText) {
 }
 ```
 
-### Example 3: End Conversation
+### Example 3: End Conversation (Optional)
+
+> **Note:** Backend automatically ends sessions after 30 minutes of inactivity. Explicit ending is optional.
 
 ```cpp
 #include <HTTPClient.h>
@@ -122,9 +125,10 @@ void endConversation() {
   http.begin("http://your-server.com:5005/api/conversations/end");
   http.addHeader("Content-Type", "application/json");
 
-  // Create JSON payload
+  // Create JSON payload - backend looks up session by device+user
   StaticJsonDocument<256> doc;
-  doc["session_id"] = sessionId;
+  doc["device_id"] = deviceId;
+  doc["user_id"] = userId;
 
   String jsonPayload;
   serializeJson(doc, jsonPayload);
@@ -134,9 +138,7 @@ void endConversation() {
 
   if (httpResponseCode == 200) {
     Serial.println("[INFO] Conversation ended successfully");
-
-    // Generate new session ID for next conversation
-    sessionId = generateNewSessionId();
+    // Backend creates new session automatically on next request
   } else {
     Serial.printf("[ERROR] Failed to end conversation: %d\n", httpResponseCode);
   }
@@ -147,36 +149,32 @@ void endConversation() {
 
 ## Session Management
 
-### Generate Session ID
-
-```cpp
-String generateNewSessionId() {
-  // Use MAC address + timestamp for unique session ID
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
-
-  char sessionId[64];
-  sprintf(sessionId, "esp32_%02X%02X%02X_%lu",
-          mac[3], mac[4], mac[5], millis());
-
-  return String(sessionId);
-}
-```
+> **🔄 Sessions are now backend-managed!** No session ID generation needed on ESP32.
 
 ### Global Variables
 
 ```cpp
 // Initialize these during toy pairing/setup
-String userId = "";           // From Firebase Auth (set during pairing)
+String deviceId = "";         // Device identifier (MAC address or unique ID)
+String userEmail = "";        // From pairing (WiFi config)
+String userId = "";           // Or use user_id instead of email
 String activeChildId = "";    // From user selection (set when child starts using toy)
 String toyId = "";            // Unique toy identifier (set during manufacturing)
-String sessionId = "";        // Generated at start of each conversation
 
-// Initialize session ID at startup or after ending conversation
+// NO SESSION ID NEEDED - backend manages it automatically!
+
 void setup() {
   // ... WiFi setup ...
 
-  sessionId = generateNewSessionId();
+  // Get device ID from MAC address
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  char macStr[18];
+  sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  deviceId = String(macStr);
+
+  Serial.printf("[INFO] Device ID: %s\n", deviceId.c_str());
 }
 ```
 
@@ -187,37 +185,37 @@ void setup() {
 - No need to explicitly "start" - backend creates it automatically
 
 ### When to End a Conversation
+
+> **Backend Auto-Ends:** Sessions automatically end after 30 minutes of inactivity. Explicit ending is optional.
+
+**Option 1: Let Backend Handle It (Recommended)**
+```cpp
+// Do nothing - backend handles session expiration automatically
+// No endConversation() call needed
+```
+
+**Option 2: Explicit End (Optional)**
 Call `endConversation()` when:
 
 ```cpp
-// 1. Inactivity timeout (30 seconds of silence)
-unsigned long lastActivityTime = millis();
-const unsigned long TIMEOUT_MS = 30000; // 30 seconds
-
-void loop() {
-  if (millis() - lastActivityTime > TIMEOUT_MS) {
-    if (conversationActive) {
-      endConversation();
-      conversationActive = false;
-    }
-  }
-}
-
-// 2. User manually ends session
+// 1. User manually ends session
 void onButtonPress() {
   if (conversationActive) {
-    endConversation();
+    endConversation();  // Optional - tells backend to end immediately
     conversationActive = false;
   }
 }
 
-// 3. Toy is turned off
+// 2. Toy is turned off
 void onPowerOff() {
   if (conversationActive) {
-    endConversation();
+    endConversation();  // Good practice - immediate cleanup
   }
   // ... shutdown ...
 }
+
+// Note: Inactivity timeout is now handled by backend (30 minutes)
+// No need to track timeout on ESP32
 ```
 
 ## Error Handling
@@ -279,13 +277,13 @@ bool sendWithRetry(const char* text, int maxRetries = 3) {
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-// Global variables
-String userId = "user_abc123";
+// Global variables (NO SESSION ID NEEDED!)
+String deviceId = "";
+String userEmail = "parent@example.com";  // From pairing
+String userId = "user_abc123";            // Or use this
 String activeChildId = "child_xyz789";
 String toyId = "toy_luno_001";
-String sessionId = "";
 bool conversationActive = false;
-unsigned long lastActivityTime = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -298,8 +296,15 @@ void setup() {
   }
   Serial.println("\n[INFO] WiFi connected");
 
-  // Generate initial session ID
-  sessionId = generateNewSessionId();
+  // Get device ID from MAC address
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  char macStr[18];
+  sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  deviceId = String(macStr);
+
+  Serial.printf("[INFO] Device ID: %s\n", deviceId.c_str());
 }
 
 void loop() {
@@ -308,31 +313,16 @@ void loop() {
     uint8_t* audioData = recordAudio();
     size_t audioLength = getAudioLength();
 
-    // Send to backend (automatically creates/continues conversation)
+    // Send to backend - it handles session automatically!
     sendAudioToBackend(audioData, audioLength);
 
     conversationActive = true;
-    lastActivityTime = millis();
   }
 
-  // Check for inactivity timeout
-  if (conversationActive &&
-      (millis() - lastActivityTime > 30000)) {
-    Serial.println("[INFO] Inactivity timeout - ending conversation");
-    endConversation();
-    conversationActive = false;
-  }
+  // Backend handles inactivity timeout (30 min)
+  // No need to track timeout on ESP32
 
   delay(100);
-}
-
-String generateNewSessionId() {
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
-  char sid[64];
-  sprintf(sid, "esp32_%02X%02X%02X_%lu",
-          mac[3], mac[4], mac[5], millis());
-  return String(sid);
 }
 
 void sendAudioToBackend(uint8_t* audioData, size_t audioLength) {
@@ -340,8 +330,9 @@ void sendAudioToBackend(uint8_t* audioData, size_t audioLength) {
   http.begin("http://your-server.com:5005/upload");
   http.addHeader("Content-Type", "audio/adpcm");
   http.addHeader("X-Audio-Format", "adpcm");
-  http.addHeader("X-Session-ID", sessionId);
-  http.addHeader("X-User-ID", userId);
+  // NO X-Session-ID - backend manages it!
+  http.addHeader("X-Device-ID", deviceId);
+  http.addHeader("X-User-Email", userEmail);  // Or X-User-ID
   http.addHeader("X-Child-ID", activeChildId);
   http.addHeader("X-Toy-ID", toyId);
 
@@ -362,14 +353,15 @@ void endConversation() {
   http.addHeader("Content-Type", "application/json");
 
   StaticJsonDocument<256> doc;
-  doc["session_id"] = sessionId;
+  doc["device_id"] = deviceId;  // Backend looks up session
+  doc["user_id"] = userId;
   String payload;
   serializeJson(doc, payload);
 
   int httpCode = http.POST(payload);
   if (httpCode == 200) {
     Serial.println("[INFO] Conversation ended");
-    sessionId = generateNewSessionId(); // New session for next conversation
+    // Backend creates new session automatically on next request
   }
 
   http.end();
@@ -378,25 +370,32 @@ void endConversation() {
 
 ## Testing Checklist
 
-- [ ] Headers are included in all requests
-- [ ] Session ID is unique and consistent within a conversation
-- [ ] Session ID is regenerated after ending a conversation
+- [ ] Headers are included in all requests (X-Device-ID, X-User-Email/ID)
+- [ ] ~~Session ID is sent~~ **No longer needed - backend manages sessions!**
+- [ ] Device ID is consistent across all requests
 - [ ] User/Child/Toy IDs match Firebase document IDs
-- [ ] Conversation ends after inactivity
 - [ ] Audio responses are played correctly
 - [ ] Error cases are handled gracefully
 
 ## Common Issues
 
 ### Issue: "Missing user/child metadata" warning in logs
-**Solution:** Ensure all headers (`X-User-ID`, `X-Child-ID`, etc.) are sent
+**Solution:** Ensure all headers (`X-Device-ID`, `X-User-Email`, `X-Child-ID`) are sent
 
-### Issue: Multiple conversations created for same session
-**Solution:** Use the same `session_id` for all requests in a conversation
+### Issue: Multiple conversations created
+**Solution:** Ensure device_id and user_id are consistent across requests (backend uses these to manage sessions)
 
 ### Issue: Stats not updating
-**Solution:** Call `/api/conversations/end` when conversation finishes
+**Solution:** Backend auto-ends sessions after 30 min, or call `/api/conversations/end` explicitly
 
 ---
 
-**For more details, see:** `FIRESTORE_INTEGRATION_GUIDE.md`
+## Related Documentation
+
+- [SESSION_MANAGEMENT.md](./SESSION_MANAGEMENT.md) - **NEW** Backend session management guide
+- [AUTHENTICATION.md](./AUTHENTICATION.md) - Authentication system
+- [README.md](../README.md) - Complete system documentation
+
+---
+
+**Backend-Managed Sessions - Simplified ESP32 Integration! 🎉**
