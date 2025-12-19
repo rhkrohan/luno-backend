@@ -1,5 +1,6 @@
 import os
 import time
+import threading
 from datetime import datetime, timedelta
 
 # Server start time for restart detection
@@ -14,7 +15,8 @@ class SessionManager:
             firestore_service: FirestoreService instance for database operations
         """
         self.fs = firestore_service
-        self.INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("SESSION_INACTIVITY_TIMEOUT", 1800))  # Default 30 min
+        self._lock = threading.Lock()  # Thread safety for ACTIVE_CONVERSATIONS
+        self.INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("SESSION_INACTIVITY_TIMEOUT", 300))  # Default 2 min (for testing)
         self.ACTIVE_CONVERSATIONS = {}  # In-memory cache: session_id -> session_data
 
         print(f"[INFO] SessionManager initialized with {self.INACTIVITY_TIMEOUT_SECONDS}s inactivity timeout")
@@ -61,13 +63,14 @@ class SessionManager:
                 'start_time': float
             }
         """
-        # Step 1: Check in-memory cache
+        # Step 1: Check in-memory cache (thread-safe)
         # Look for any active session for this device-user pair in memory
-        cached_session_id = None
-        for sid, data in self.ACTIVE_CONVERSATIONS.items():
-            if data.get('device_id') == device_id and data.get('user_id') == user_id:
-                cached_session_id = sid
-                break
+        with self._lock:
+            cached_session_id = None
+            for sid, data in self.ACTIVE_CONVERSATIONS.items():
+                if data.get('device_id') == device_id and data.get('user_id') == user_id:
+                    cached_session_id = sid
+                    break
 
         if cached_session_id:
             print(f"[INFO] Using cached session: {cached_session_id}")
@@ -180,7 +183,7 @@ class SessionManager:
             conversation_id=conversation_id
         )
 
-        # Store in memory
+        # Store in memory (thread-safe)
         session_data = {
             'session_id': session_id,
             'conversation_id': conversation_id,
@@ -192,7 +195,8 @@ class SessionManager:
             'message_count': 0,
         }
 
-        self.ACTIVE_CONVERSATIONS[session_id] = session_data
+        with self._lock:
+            self.ACTIVE_CONVERSATIONS[session_id] = session_data
 
         print(f"[INFO] Created new session: {session_id} with conversation: {conversation_id}")
         return session_data
@@ -232,9 +236,9 @@ class SessionManager:
             child_id = session_data.get('child_id')
             start_time = session_data.get('start_time')
 
-            # Calculate duration
+            # Calculate duration (in minutes, rounded)
             duration_seconds = time.time() - start_time
-            duration_minutes = int(duration_seconds / 60)
+            duration_minutes = round(duration_seconds / 60)
 
             # End conversation in Firestore
             if conversation_id:
@@ -245,8 +249,9 @@ class SessionManager:
                     duration_minutes=duration_minutes
                 )
 
-            # Remove from memory
-            del self.ACTIVE_CONVERSATIONS[session_id]
+            # Remove from memory (thread-safe)
+            with self._lock:
+                del self.ACTIVE_CONVERSATIONS[session_id]
 
             print(f"[INFO] Ended session {session_id}, duration: {duration_minutes}m, reason: {reason}")
 
@@ -305,14 +310,14 @@ class SessionManager:
         print("[INFO] Running session cleanup task...")
 
         try:
-            # This would require a more complex query
-            # For now, we'll iterate through in-memory sessions
+            # Check in-memory sessions (thread-safe)
             expired_sessions = []
 
-            for session_id, session_data in list(self.ACTIVE_CONVERSATIONS.items()):
-                user_id = session_data.get('user_id')
-                if self.is_session_expired(session_id, user_id):
-                    expired_sessions.append((session_id, user_id))
+            with self._lock:
+                for session_id, session_data in list(self.ACTIVE_CONVERSATIONS.items()):
+                    user_id = session_data.get('user_id')
+                    if self.is_session_expired(session_id, user_id):
+                        expired_sessions.append((session_id, user_id))
 
             # End expired sessions
             for session_id, user_id in expired_sessions:
@@ -324,8 +329,48 @@ class SessionManager:
             else:
                 print("[INFO] No expired sessions found")
 
+            # Also check for orphaned sessions in Firestore
+            self.cleanup_firestore_orphans()
+
         except Exception as e:
             print(f"[ERROR] Session cleanup failed: {e}")
+
+    def cleanup_firestore_orphans(self):
+        """
+        Find orphaned sessions in Firestore that aren't in memory
+
+        Scans Firestore for expired active sessions that are not currently
+        in the ACTIVE_CONVERSATIONS cache and ends them.
+        """
+        try:
+            cutoff_time = datetime.now() - timedelta(seconds=self.INACTIVITY_TIMEOUT_SECONDS)
+
+            # Query all expired active sessions across all users
+            expired_sessions = self.fs.db.collection_group("sessions")\
+                .where("status", "==", "active")\
+                .where("lastActivityAt", "<", cutoff_time)\
+                .stream()
+
+            orphaned_count = 0
+            for session_doc in expired_sessions:
+                session_data = session_doc.to_dict()
+                session_id = session_data.get('sessionId')
+                user_id = session_data.get('userId')
+
+                # Check if in memory (thread-safe)
+                with self._lock:
+                    in_memory = session_id in self.ACTIVE_CONVERSATIONS
+
+                if not in_memory:
+                    print(f"[CLEANUP] Found orphaned session: {session_id}")
+                    self.end_session(session_id, user_id, reason="orphaned")
+                    orphaned_count += 1
+
+            if orphaned_count > 0:
+                print(f"[CLEANUP] Cleaned up {orphaned_count} orphaned session(s)")
+
+        except Exception as e:
+            print(f"[ERROR] Orphan cleanup failed: {e}")
 
     def get_active_session_id(self, device_id, user_id):
         """

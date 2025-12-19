@@ -134,6 +134,11 @@ def simulator():
     """Serve the web-based ESP32 simulator"""
     return send_file("simulators/simulator.html")
 
+@app.route("/test")
+def test_simulator():
+    """Serve the simplified ESP32 test simulator"""
+    return send_file("simulators/esp32_test_simulator.html")
+
 @app.route("/simulator_config.json")
 def simulator_config():
     """Serve the simulator configuration file"""

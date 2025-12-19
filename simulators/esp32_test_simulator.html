@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Test Simulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 0.9em;
+        }
+
+        .main-content {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+
+        .section h2 {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            color: #495057;
+            border-left: 4px solid #667eea;
+            padding-left: 10px;
+        }
+
+        .required-badge {
+            background: #dc3545;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            margin-left: 8px;
+            font-weight: 600;
+        }
+
+        .optional-badge {
+            background: #6c757d;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            margin-left: 8px;
+            font-weight: 600;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #495057;
+            font-size: 0.9em;
+        }
+
+        .form-input {
+            padding: 10px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 0.95em;
+            transition: border-color 0.3s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .test-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .message-input {
+            display: flex;
+            gap: 10px;
+        }
+
+        .message-input input {
+            flex: 1;
+        }
+
+        .audio-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .log-area {
+            background: #212529;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            line-height: 1.4;
+        }
+
+        .log-timestamp {
+            color: #6c757d;
+            margin-right: 10px;
+        }
+
+        .log-success {
+            color: #28a745;
+        }
+
+        .log-error {
+            color: #dc3545;
+        }
+
+        .log-info {
+            color: #17a2b8;
+        }
+
+        .recording-indicator {
+            display: none;
+            background: #dc3545;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-top: 10px;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .recording-indicator.active {
+            display: block;
+        }
+
+        .audio-player {
+            width: 100%;
+            margin-top: 15px;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #0066cc;
+            padding: 12px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #004085;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .status-item {
+            font-size: 0.85em;
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: #6c757d;
+        }
+
+        .status-value {
+            color: #495057;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 ESP32 Test Simulator</h1>
+            <p>Test backend endpoints with ESP32-style requests</p>
+        </div>
+
+        <div class="main-content">
+            <!-- Headers Configuration -->
+            <div class="section">
+                <h2>📋 Request Headers Configuration</h2>
+
+                <div class="info-box">
+                    <strong>Select a user</strong> from the dropdown to load their children and toys.<br>
+                    Children and toys will automatically populate once a user is selected.
+                </div>
+
+                <div class="form-grid">
+                    <!-- Required Headers -->
+                    <div class="form-group">
+                        <label class="form-label">
+                            X-Device-ID <span class="required-badge">REQUIRED</span>
+                        </label>
+                        <input type="text" class="form-input" id="deviceId"
+                               value="test_toy_1763434576"
+                               placeholder="MAC address or device ID">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">
+                            Select User <span class="required-badge">REQUIRED</span>
+                        </label>
+                        <select class="form-input" id="userSelect" onchange="onUserChange()">
+                            <option value="">-- Select a User --</option>
+                        </select>
+                        <input type="hidden" id="userEmail" value="">
+                        <input type="hidden" id="userId" value="">
+                    </div>
+
+                    <!-- Optional Headers -->
+                    <div class="form-group">
+                        <label class="form-label">
+                            Select Child <span class="optional-badge">OPTIONAL</span>
+                        </label>
+                        <select class="form-input" id="childSelect" onchange="onChildChange()" disabled>
+                            <option value="">-- Select a Child --</option>
+                        </select>
+                        <input type="hidden" id="childId" value="">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">
+                            Select Toy <span class="optional-badge">OPTIONAL</span>
+                        </label>
+                        <select class="form-input" id="toySelect" onchange="onToyChange()" disabled>
+                            <option value="">-- Select a Toy --</option>
+                        </select>
+                        <input type="hidden" id="toyId" value="">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Backend URL</label>
+                        <input type="text" class="form-input" id="backendUrl"
+                               value="https://pseudomedically-obese-lanette.ngrok-free.dev">
+                    </div>
+                </div>
+
+                <div class="test-actions">
+                    <button class="btn btn-primary" onclick="testAuth()">🔐 Test Authentication</button>
+                    <button class="btn btn-warning" onclick="testConnection()">🔌 Test Connection</button>
+                    <button class="btn btn-success" onclick="refreshData()">🔄 Refresh Data</button>
+                </div>
+            </div>
+
+            <!-- Text Mode Testing -->
+            <div class="section">
+                <h2>💬 Text Upload Test (POST /text_upload)</h2>
+
+                <div class="info-box">
+                    Simulates ESP32 sending text after local STT processing.<br>
+                    <strong>Endpoint:</strong> POST /text_upload<br>
+                    <strong>Body:</strong> JSON with "text" field<br>
+                    <strong>Response:</strong> WAV audio file
+                </div>
+
+                <div class="status-bar">
+                    <div class="status-item">
+                        <span class="status-label">Messages Sent:</span>
+                        <span class="status-value" id="messageCount">0</span>
+                    </div>
+                </div>
+
+                <div class="message-input">
+                    <input type="text" class="form-input" id="textMessage"
+                           placeholder="Type a message to send (e.g., 'Hello, how are you?')"
+                           onkeypress="if(event.key === 'Enter') sendText()">
+                    <button class="btn btn-success" onclick="sendText()">📤 Send Text</button>
+                </div>
+
+                <audio id="textAudioPlayer" class="audio-player" controls style="display:none;"></audio>
+            </div>
+
+            <!-- Audio Mode Testing -->
+            <div class="section">
+                <h2>🎤 Audio Upload Test (POST /upload)</h2>
+
+                <div class="info-box">
+                    Simulates ESP32 sending audio for server-side STT.<br>
+                    <strong>Endpoint:</strong> POST /upload<br>
+                    <strong>Body:</strong> Audio binary (WAV or ADPCM)<br>
+                    <strong>Content-Type:</strong> audio/wav or audio/adpcm<br>
+                    <strong>Response:</strong> WAV audio file
+                </div>
+
+                <div class="audio-controls">
+                    <button class="btn btn-success" id="recordBtn" onclick="startRecording()">
+                        🎤 Start Recording
+                    </button>
+                    <button class="btn btn-danger" id="stopBtn" onclick="stopRecording()" disabled>
+                        ⏹️ Stop Recording
+                    </button>
+                    <button class="btn btn-primary" id="sendAudioBtn" onclick="sendAudio()" disabled>
+                        📤 Send Audio
+                    </button>
+                </div>
+
+                <div class="recording-indicator" id="recordingIndicator">
+                    🔴 RECORDING... Speak now!
+                </div>
+
+                <audio id="audioPlayer" class="audio-player" controls style="display:none;"></audio>
+            </div>
+
+            <!-- Logs -->
+            <div class="section">
+                <h2>📝 Request/Response Logs</h2>
+                <button class="btn btn-warning" onclick="clearLogs()">🗑️ Clear Logs</button>
+                <div class="log-area" id="logArea"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let messageCount = 0;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recordedBlob = null;
+
+        // State for users, children, and toys
+        let usersData = {};
+        let childrenData = {};
+        let toysData = {};
+
+        // Initialize
+        document.getElementById('messageCount').textContent = messageCount;
+        log('Simulator initialized. Loading users from Firestore...', 'info');
+        loadUsers();
+
+        // Load users from Firestore
+        async function loadUsers() {
+            try {
+                const backendUrl = document.getElementById('backendUrl').value;
+                // Note: This endpoint doesn't exist yet, so we'll create a workaround
+                // For now, we'll use the test data that should be in Firestore
+
+                log('Loading users... (using test_user_1763434576)', 'info');
+
+                // For now, we'll hardcode test data since we don't have a list users endpoint
+                // In production, you'd call an endpoint like /api/users
+                const userSelect = document.getElementById('userSelect');
+
+                // Add test user
+                const option = document.createElement('option');
+                option.value = 'test_user_1763434576';
+                option.textContent = 'test@lunotoys.com (Test User)';
+                option.dataset.email = 'test@lunotoys.com';
+                option.dataset.userId = 'test_user_1763434576';
+                userSelect.appendChild(option);
+
+                usersData['test_user_1763434576'] = {
+                    email: 'test@lunotoys.com',
+                    userId: 'test_user_1763434576'
+                };
+
+                log('✓ Users loaded', 'success');
+            } catch (error) {
+                log(`❌ Failed to load users: ${error.message}`, 'error');
+            }
+        }
+
+        // Handle user selection change
+        async function onUserChange() {
+            const userSelect = document.getElementById('userSelect');
+            const selectedOption = userSelect.options[userSelect.selectedIndex];
+
+            if (!selectedOption || !selectedOption.value) {
+                document.getElementById('userEmail').value = '';
+                document.getElementById('userId').value = '';
+                document.getElementById('childSelect').disabled = true;
+                document.getElementById('toySelect').disabled = true;
+                return;
+            }
+
+            const userId = selectedOption.value;
+            const userEmail = selectedOption.dataset.email;
+
+            document.getElementById('userEmail').value = userEmail;
+            document.getElementById('userId').value = userId;
+
+            log(`Selected user: ${userEmail} (${userId})`, 'info');
+
+            // Load children and toys for this user
+            await loadChildren(userId);
+            await loadToys(userId);
+        }
+
+        // Load children for a user
+        async function loadChildren(userId) {
+            try {
+                log(`Loading children for user ${userId}...`, 'info');
+
+                const childSelect = document.getElementById('childSelect');
+                childSelect.innerHTML = '<option value="">-- Select a Child --</option>';
+
+                // Hardcoded test child
+                const option = document.createElement('option');
+                option.value = 'test_child_1763434576';
+                option.textContent = 'Test Child';
+                childSelect.appendChild(option);
+
+                childSelect.disabled = false;
+                log('✓ Children loaded', 'success');
+            } catch (error) {
+                log(`❌ Failed to load children: ${error.message}`, 'error');
+            }
+        }
+
+        // Load toys for a user
+        async function loadToys(userId) {
+            try {
+                log(`Loading toys for user ${userId}...`, 'info');
+
+                const toySelect = document.getElementById('toySelect');
+                toySelect.innerHTML = '<option value="">-- Select a Toy --</option>';
+
+                // Hardcoded test toy
+                const option = document.createElement('option');
+                option.value = 'test_toy_1763434576';
+                option.textContent = 'Test Toy 1';
+                toySelect.appendChild(option);
+
+                toySelect.disabled = false;
+
+                // Also update the device ID to match the selected toy
+                document.getElementById('deviceId').value = 'test_toy_1763434576';
+
+                log('✓ Toys loaded', 'success');
+            } catch (error) {
+                log(`❌ Failed to load toys: ${error.message}`, 'error');
+            }
+        }
+
+        // Handle child selection change
+        function onChildChange() {
+            const childSelect = document.getElementById('childSelect');
+            const childId = childSelect.value;
+            document.getElementById('childId').value = childId;
+
+            if (childId) {
+                log(`Selected child: ${childSelect.options[childSelect.selectedIndex].textContent} (${childId})`, 'info');
+            }
+        }
+
+        // Handle toy selection change
+        function onToyChange() {
+            const toySelect = document.getElementById('toySelect');
+            const toyId = toySelect.value;
+            document.getElementById('toyId').value = toyId;
+
+            // Update device ID to match toy ID
+            if (toyId) {
+                document.getElementById('deviceId').value = toyId;
+                log(`Selected toy: ${toySelect.options[toySelect.selectedIndex].textContent} (${toyId})`, 'info');
+            }
+        }
+
+        // Refresh all data
+        async function refreshData() {
+            log('🔄 Refreshing all data...', 'info');
+
+            // Reset selections
+            document.getElementById('userSelect').innerHTML = '<option value="">-- Select a User --</option>';
+            document.getElementById('childSelect').innerHTML = '<option value="">-- Select a Child --</option>';
+            document.getElementById('toySelect').innerHTML = '<option value="">-- Select a Toy --</option>';
+            document.getElementById('childSelect').disabled = true;
+            document.getElementById('toySelect').disabled = true;
+
+            // Reload users
+            await loadUsers();
+        }
+
+        // Logging
+        function log(message, type = 'info') {
+            const logArea = document.getElementById('logArea');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+
+            let color = 'log-info';
+            if (type === 'success') color = 'log-success';
+            if (type === 'error') color = 'log-error';
+
+            entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span><span class="${color}">${message}</span>`;
+            logArea.appendChild(entry);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logArea').innerHTML = '';
+            log('Logs cleared', 'info');
+        }
+
+        // Get headers
+        function getHeaders() {
+            return {
+                'X-Device-ID': document.getElementById('deviceId').value,
+                'X-User-Email': document.getElementById('userEmail').value,
+                'X-User-ID': document.getElementById('userId').value,
+                'X-Child-ID': document.getElementById('childId').value,
+                'X-Toy-ID': document.getElementById('toyId').value
+            };
+        }
+
+        // Test connection
+        async function testConnection() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            log(`Testing connection to ${backendUrl}...`, 'info');
+
+            try {
+                const response = await fetch(backendUrl);
+                if (response.ok) {
+                    const text = await response.text();
+                    log(`✓ Backend is running: ${text}`, 'success');
+                } else {
+                    log(`⚠ Backend responded with status ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Connection failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Test authentication
+        async function testAuth() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            log('🔐 Testing authentication...', 'info');
+            log(`Headers: ${JSON.stringify(getHeaders())}`, 'info');
+
+            try {
+                const response = await fetch(`${backendUrl}/auth/test`, {
+                    method: 'GET',
+                    headers: getHeaders()
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✓ AUTHENTICATION SUCCESS!', 'success');
+                    log(`  User ID: ${data.user_id}`, 'info');
+                    log(`  Email: ${data.email}`, 'info');
+                    log(`  Device: ${data.device_name} (${data.device_id})`, 'info');
+                    log(`  Status: ${data.device_status}`, 'info');
+                    if (data.assigned_child) {
+                        log(`  Assigned Child: ${data.assigned_child}`, 'info');
+                    }
+                } else {
+                    const errorData = await response.json();
+                    log(`✗ AUTHENTICATION FAILED (${response.status})`, 'error');
+                    log(`  Error: ${errorData.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Send text
+        async function sendText() {
+            const text = document.getElementById('textMessage').value.trim();
+            if (!text) {
+                log('⚠ Please enter a message', 'error');
+                return;
+            }
+
+            const backendUrl = document.getElementById('backendUrl').value;
+            const childId = document.getElementById('childId').value;
+            const toyId = document.getElementById('toyId').value;
+
+            log(`📤 POST /text_upload`, 'info');
+            log(`  Text: "${text}"`, 'info');
+
+            const payload = {
+                text: text,
+                child_id: childId,
+                toy_id: toyId
+            };
+
+            try {
+                const startTime = Date.now();
+                const headers = getHeaders();
+                headers['Content-Type'] = 'application/json';
+
+                const response = await fetch(`${backendUrl}/text_upload`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload)
+                });
+
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (response.ok) {
+                    log(`✓ Response received (${elapsed}s)`, 'success');
+
+                    // Log timing breakdown
+                    const responseTime = response.headers.get('X-Response-Time');
+                    const gptTime = response.headers.get('X-GPT-Time');
+                    const ttsTime = response.headers.get('X-TTS-Time');
+
+                    if (responseTime) {
+                        log(`  Timing: Total=${responseTime}s | GPT=${gptTime}s | TTS=${ttsTime}s`, 'info');
+                    }
+
+                    // Play audio response
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audioPlayer = document.getElementById('textAudioPlayer');
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.style.display = 'block';
+                    audioPlayer.play();
+
+                    messageCount++;
+                    document.getElementById('messageCount').textContent = messageCount;
+
+                    // Clear input
+                    document.getElementById('textMessage').value = '';
+                } else {
+                    const errorText = await response.text();
+                    log(`❌ Error ${response.status}: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Request failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Record audio
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    recordedBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    const audioUrl = URL.createObjectURL(recordedBlob);
+                    const audioPlayer = document.getElementById('audioPlayer');
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.style.display = 'block';
+
+                    document.getElementById('sendAudioBtn').disabled = false;
+                    log('✓ Recording saved. Click "Send Audio" to upload', 'success');
+                };
+
+                mediaRecorder.start();
+                log('🎤 Recording started...', 'info');
+
+                document.getElementById('recordBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('recordingIndicator').classList.add('active');
+
+            } catch (error) {
+                log(`❌ Failed to access microphone: ${error.message}`, 'error');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+
+                document.getElementById('recordBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('recordingIndicator').classList.remove('active');
+
+                log('⏹️ Recording stopped', 'info');
+            }
+        }
+
+        // Send audio
+        async function sendAudio() {
+            if (!recordedBlob) {
+                log('⚠ No audio recorded', 'error');
+                return;
+            }
+
+            const backendUrl = document.getElementById('backendUrl').value;
+            log('📤 POST /upload', 'info');
+            log(`  Content-Type: audio/wav`, 'info');
+            log(`  Size: ${recordedBlob.size} bytes`, 'info');
+
+            try {
+                const startTime = Date.now();
+                const headers = getHeaders();
+                headers['Content-Type'] = 'audio/wav';
+
+                const response = await fetch(`${backendUrl}/upload`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: recordedBlob
+                });
+
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (response.ok) {
+                    log(`✓ Response received (${elapsed}s)`, 'success');
+
+                    // Log timing breakdown
+                    const responseTime = response.headers.get('X-Response-Time');
+                    const sttTime = response.headers.get('X-STT-Time');
+                    const gptTime = response.headers.get('X-GPT-Time');
+                    const ttsTime = response.headers.get('X-TTS-Time');
+
+                    if (responseTime) {
+                        log(`  Timing: Total=${responseTime}s | STT=${sttTime}s | GPT=${gptTime}s | TTS=${ttsTime}s`, 'info');
+                    }
+
+                    // Play audio response
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audioPlayer = document.getElementById('audioPlayer');
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.play();
+
+                    messageCount++;
+                    document.getElementById('messageCount').textContent = messageCount;
+
+                    document.getElementById('sendAudioBtn').disabled = true;
+                    recordedBlob = null;
+                } else {
+                    const errorText = await response.text();
+                    log(`❌ Error ${response.status}: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Upload failed: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -190,21 +190,26 @@ class FirestoreService:
                 .collection("children").document(child_id)\
                 .collection("conversations").document(conversation_id)
 
-            # Get current message count
-            messages = conversation_ref.collection("messages").stream()
-            message_count = sum(1 for _ in messages)
+            # Get messages to count and generate title
+            messages_ref = conversation_ref.collection("messages").order_by("timestamp")
+            messages = list(messages_ref.stream())
+            message_count = len(messages)
+
+            # Generate conversation title based on content
+            title = self._generate_conversation_title(messages)
 
             # Update conversation
             conversation_ref.update({
                 "endTime": firestore.SERVER_TIMESTAMP,
                 "duration": duration_minutes,
                 "messageCount": message_count,
+                "title": title,
             })
 
             # Update user stats
             self._update_user_stats(user_id, child_id, conversation_id, duration_minutes)
 
-            print(f"[INFO] Ended conversation {conversation_id}, duration: {duration_minutes}m")
+            print(f"[INFO] Ended conversation {conversation_id}, duration: {duration_minutes}m, title: '{title}'")
 
         except Exception as e:
             print(f"[ERROR] Failed to end conversation: {e}")
@@ -242,6 +247,53 @@ class FirestoreService:
             print(f"[ERROR] Failed to update user stats: {e}")
 
     # ==================== HELPER METHODS ====================
+
+    def _generate_conversation_title(self, messages):
+        """
+        Generate a unique, meaningful title for a conversation based on its messages
+        Title is limited to maximum 2 words
+
+        Args:
+            messages: List of message documents from Firestore
+
+        Returns:
+            str: Generated title (2 words max)
+        """
+        if not messages:
+            return "Empty Chat"
+
+        # Get first child message (skip toy responses)
+        first_child_message = None
+        for msg_doc in messages:
+            msg_data = msg_doc.to_dict()
+            if msg_data.get('sender') == 'child':
+                first_child_message = msg_data.get('content', '')
+                break
+
+        if not first_child_message:
+            return "Quick Chat"
+
+        # Clean the message
+        title = first_child_message.strip()
+
+        # Remove common filler words at the start
+        filler_words = ['um', 'uh', 'well', 'so', 'like', 'hey', 'hi', 'hello']
+        words = title.split()
+
+        # Filter out filler words
+        words = [w for w in words if w.lower() not in filler_words]
+
+        if not words:
+            return "Luno Chat"
+
+        # Take only first 2 meaningful words
+        words = words[:2]
+        title = ' '.join(words)
+
+        # Capitalize each word
+        title = ' '.join(word.capitalize() for word in title.split())
+
+        return title
 
     def _get_child_name(self, user_id, child_id):
         """Get child name from Firestore"""
