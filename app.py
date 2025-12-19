@@ -36,9 +36,9 @@ ACTIVE_CONVERSATIONS = session_manager.ACTIVE_CONVERSATIONS
 
 # Background session cleanup task
 def run_cleanup_loop():
-    """Background thread to cleanup expired sessions every 10 minutes"""
+    """Background thread to cleanup expired sessions every 60 seconds"""
     while True:
-        time.sleep(600)  # 10 minutes
+        time.sleep(60)  # 1 minute - run more frequently to catch expired sessions quickly
         try:
             session_manager.cleanup_expired_sessions()
         except Exception as e:
@@ -235,13 +235,12 @@ def upload_audio():
     stt_time = timing_log["stt_complete"] - stt_start
     print(f"[TRANSCRIPT] '{user_text}' (took {stt_time:.2f}s)")
 
-    # 3. GPT with memory context (includes Firestore saving)
+    # 3. GPT with memory context (includes Firestore batch saving - 3 writes instead of 6)
     gpt_start = time.time()
     gpt_reply = get_gpt_reply(
         user_text=user_text,
         session_id=session_id,
         user_id=user_id,
-        child_id=child_id,
         conversation_id=conversation_id
     )
     timing_log["gpt_complete"] = time.time()
@@ -428,13 +427,12 @@ def upload_text():
 
     timing_log["text_received"] = time.time()
 
-    # Process with GPT with memory context (skip STT since we have text)
+    # Process with GPT with memory context (skip STT since we have text - using batch writes)
     gpt_start = time.time()
     gpt_reply = get_gpt_reply(
         user_text=user_text,
         session_id=session_id,
         user_id=user_id,
-        child_id=child_id,
         conversation_id=conversation_id
     )
     timing_log["gpt_complete"] = time.time()
@@ -650,20 +648,18 @@ def end_conversation():
 @app.route("/api/conversations/<conversation_id>", methods=["GET"])
 def get_conversation(conversation_id):
     """
-    Get conversation details
+    Get conversation details (UNIFIED SCHEMA)
 
     Query params:
         user_id: Parent user ID
-        child_id: Child ID
     """
     try:
         user_id = request.args.get('user_id')
-        child_id = request.args.get('child_id')
 
-        if not user_id or not child_id:
-            return jsonify({"error": "user_id and child_id are required"}), 400
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
 
-        conversation = firestore_service.get_conversation(user_id, child_id, conversation_id)
+        conversation = firestore_service.get_conversation(user_id, conversation_id)
 
         if not conversation:
             return jsonify({"error": "Conversation not found"}), 404
@@ -681,23 +677,21 @@ def get_conversation(conversation_id):
 @app.route("/api/conversations/<conversation_id>/messages", methods=["GET"])
 def get_conversation_messages(conversation_id):
     """
-    Get messages for a conversation
+    Get messages for a conversation (UNIFIED SCHEMA)
 
     Query params:
         user_id: Parent user ID
-        child_id: Child ID
         limit: Max number of messages (default: 100)
     """
     try:
         user_id = request.args.get('user_id')
-        child_id = request.args.get('child_id')
         limit = int(request.args.get('limit', 100))
 
-        if not user_id or not child_id:
-            return jsonify({"error": "user_id and child_id are required"}), 400
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
 
         messages = firestore_service.get_conversation_messages(
-            user_id, child_id, conversation_id, limit
+            user_id, conversation_id, limit
         )
 
         return jsonify({
@@ -740,30 +734,85 @@ def get_child_conversations(child_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/conversations/active", methods=["GET"])
+def get_active_conversations():
+    """
+    Get all active conversations across all children (NEW ENDPOINT - enabled by unified schema)
+
+    Query params:
+        user_id: Parent user ID
+        limit: Max number of conversations (default: 20)
+    """
+    try:
+        user_id = request.args.get('user_id')
+        limit = int(request.args.get('limit', 20))
+
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
+        conversations = firestore_service.get_active_conversations(user_id, limit)
+
+        return jsonify({
+            "success": True,
+            "conversations": conversations,
+            "count": len(conversations)
+        }), 200
+
+    except Exception as e:
+        print(f"[ERROR] Failed to get active conversations: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/conversations/flagged", methods=["GET"])
+def get_flagged_conversations():
+    """
+    Get all flagged conversations (NEW ENDPOINT - enabled by unified schema)
+
+    Query params:
+        user_id: Parent user ID
+        limit: Max number of conversations (default: 50)
+    """
+    try:
+        user_id = request.args.get('user_id')
+        limit = int(request.args.get('limit', 50))
+
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
+        conversations = firestore_service.get_flagged_conversations(user_id, limit)
+
+        return jsonify({
+            "success": True,
+            "conversations": conversations,
+            "count": len(conversations)
+        }), 200
+
+    except Exception as e:
+        print(f"[ERROR] Failed to get flagged conversations: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/conversations/<conversation_id>/flag", methods=["PUT"])
 def flag_conversation(conversation_id):
     """
-    Flag or unflag a conversation
+    Flag or unflag a conversation (UNIFIED SCHEMA)
 
     Request body:
     {
         "user_id": "user123",
-        "child_id": "child123",
-        "flagged": true,
         "flag_status": "reviewed"
     }
     """
     try:
         data = request.get_json()
         user_id = data.get('user_id')
-        child_id = data.get('child_id')
         flag_status = data.get('flag_status', 'reviewed')
 
-        if not user_id or not child_id:
-            return jsonify({"error": "user_id and child_id are required"}), 400
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
 
+        # NEW LOCATION: conversations directly under user
         conversation_ref = firestore_service.db.collection("users").document(user_id)\
-            .collection("children").document(child_id)\
             .collection("conversations").document(conversation_id)
 
         conversation_ref.update({
@@ -984,6 +1033,99 @@ def get_user_stats(user_id):
 
     except Exception as e:
         print(f"[ERROR] Failed to get user stats: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/users", methods=["GET"])
+def list_users():
+    """List all users from Firestore (for simulator)"""
+    try:
+        if not firestore_service.is_available():
+            return jsonify({"error": "Firestore not available"}), 503
+
+        users_ref = firestore_service.db.collection("users")
+        users_docs = users_ref.stream()
+
+        users = []
+        for doc in users_docs:
+            user_data = doc.to_dict()
+            users.append({
+                "userId": doc.id,
+                "email": user_data.get('email', 'N/A'),
+                "displayName": user_data.get('displayName', 'N/A')
+            })
+
+        return jsonify({
+            "success": True,
+            "users": users,
+            "count": len(users)
+        }), 200
+
+    except Exception as e:
+        print(f"[ERROR] Failed to list users: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/users/<user_id>/children", methods=["GET"])
+def list_children(user_id):
+    """List children for a specific user"""
+    try:
+        if not firestore_service.is_available():
+            return jsonify({"error": "Firestore not available"}), 503
+
+        children_ref = firestore_service.db.collection("users").document(user_id).collection("children")
+        children_docs = children_ref.stream()
+
+        children = []
+        for doc in children_docs:
+            child_data = doc.to_dict()
+            children.append({
+                "childId": doc.id,
+                "name": child_data.get('name', 'N/A'),
+                "avatar": child_data.get('avatar', '🧒'),
+                "ageLevel": child_data.get('ageLevel', 'N/A')
+            })
+
+        return jsonify({
+            "success": True,
+            "children": children,
+            "count": len(children)
+        }), 200
+
+    except Exception as e:
+        print(f"[ERROR] Failed to list children: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/users/<user_id>/toys", methods=["GET"])
+def list_toys(user_id):
+    """List toys for a specific user"""
+    try:
+        if not firestore_service.is_available():
+            return jsonify({"error": "Firestore not available"}), 503
+
+        toys_ref = firestore_service.db.collection("users").document(user_id).collection("toys")
+        toys_docs = toys_ref.stream()
+
+        toys = []
+        for doc in toys_docs:
+            toy_data = doc.to_dict()
+            toys.append({
+                "toyId": doc.id,
+                "name": toy_data.get('name', 'N/A'),
+                "emoji": toy_data.get('emoji', '🦄'),
+                "assignedChildId": toy_data.get('assignedChildId'),
+                "status": toy_data.get('status', 'offline')
+            })
+
+        return jsonify({
+            "success": True,
+            "toys": toys,
+            "count": len(toys)
+        }), 200
+
+    except Exception as e:
+        print(f"[ERROR] Failed to list toys: {e}")
         return jsonify({"error": str(e)}), 500
 
 

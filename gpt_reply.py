@@ -42,7 +42,7 @@ def get_session_message_count(session_id):
     return len(CONVERSATIONS.get(session_id, []))
 
 
-def get_gpt_reply(user_text, session_id="default", user_id=None, child_id=None, conversation_id=None):
+def get_gpt_reply(user_text, session_id="default", user_id=None, conversation_id=None):
     try:
         print(f"[INFO] Session: {session_id}, Message: {user_text}")
 
@@ -82,28 +82,18 @@ def get_gpt_reply(user_text, session_id="default", user_id=None, child_id=None, 
         if len(CONVERSATIONS[session_id]) > 10:
             CONVERSATIONS[session_id] = CONVERSATIONS[session_id][-10:]
 
-        # Save to Firestore if metadata is provided
-        if user_id and child_id and conversation_id:
+        # Save to Firestore if metadata is provided (USING BATCH WRITES - reduces from 6 to 3 writes)
+        if user_id and conversation_id:
             try:
-                # Save child message
-                firestore_service.add_message(
+                # Batch save both messages (3 writes total instead of 6)
+                firestore_service.add_message_batch(
                     user_id=user_id,
-                    child_id=child_id,
                     conversation_id=conversation_id,
-                    sender="child",
-                    content=user_text
+                    child_message=user_text,
+                    toy_message=reply
                 )
 
-                # Save toy message
-                firestore_service.add_message(
-                    user_id=user_id,
-                    child_id=child_id,
-                    conversation_id=conversation_id,
-                    sender="toy",
-                    content=reply
-                )
-
-                print(f"[INFO] Messages saved to Firestore for conversation {conversation_id}")
+                print(f"[INFO] Messages batch-saved to Firestore for conversation {conversation_id} (3 writes)")
             except Exception as e:
                 print(f"[WARNING] Failed to save to Firestore: {e}")
                 # Continue execution even if Firestore fails

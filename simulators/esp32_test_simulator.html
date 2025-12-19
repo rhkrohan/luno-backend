@@ -335,7 +335,8 @@
                     <div class="form-group">
                         <label class="form-label">Backend URL</label>
                         <input type="text" class="form-input" id="backendUrl"
-                               value="https://pseudomedically-obese-lanette.ngrok-free.dev">
+                               value="http://localhost:5005"
+                               placeholder="http://localhost:5005 or your EC2 URL">
                     </div>
                 </div>
 
@@ -435,31 +436,46 @@
         async function loadUsers() {
             try {
                 const backendUrl = document.getElementById('backendUrl').value;
-                // Note: This endpoint doesn't exist yet, so we'll create a workaround
-                // For now, we'll use the test data that should be in Firestore
+                log('Loading users from Firestore...', 'info');
 
-                log('Loading users... (using test_user_1763434576)', 'info');
-
-                // For now, we'll hardcode test data since we don't have a list users endpoint
-                // In production, you'd call an endpoint like /api/users
                 const userSelect = document.getElementById('userSelect');
+                userSelect.innerHTML = '<option value="">-- Select a User --</option>';
 
-                // Add test user
-                const option = document.createElement('option');
-                option.value = 'test_user_1763434576';
-                option.textContent = 'test@lunotoys.com (Test User)';
-                option.dataset.email = 'test@lunotoys.com';
-                option.dataset.userId = 'test_user_1763434576';
-                userSelect.appendChild(option);
+                // Call backend API to get users
+                const response = await fetch(`${backendUrl}/api/users`);
 
-                usersData['test_user_1763434576'] = {
-                    email: 'test@lunotoys.com',
-                    userId: 'test_user_1763434576'
-                };
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
 
-                log('✓ Users loaded', 'success');
+                const data = await response.json();
+
+                if (!data.success || !data.users || data.users.length === 0) {
+                    log('⚠ No users found in Firestore', 'error');
+                    log('💡 Run setup_test_data.py to create test users', 'info');
+                    return;
+                }
+
+                // Populate dropdown with users
+                data.users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.userId;
+                    option.textContent = `${user.email} (${user.displayName})`;
+                    option.dataset.email = user.email;
+                    option.dataset.userId = user.userId;
+                    userSelect.appendChild(option);
+
+                    usersData[user.userId] = {
+                        email: user.email,
+                        userId: user.userId,
+                        displayName: user.displayName
+                    };
+                });
+
+                log(`✓ Loaded ${data.count} user(s) from Firestore`, 'success');
             } catch (error) {
                 log(`❌ Failed to load users: ${error.message}`, 'error');
+                log('💡 Make sure backend is running and Firestore is configured', 'info');
             }
         }
 
@@ -492,46 +508,88 @@
         // Load children for a user
         async function loadChildren(userId) {
             try {
+                const backendUrl = document.getElementById('backendUrl').value;
                 log(`Loading children for user ${userId}...`, 'info');
 
                 const childSelect = document.getElementById('childSelect');
                 childSelect.innerHTML = '<option value="">-- Select a Child --</option>';
 
-                // Hardcoded test child
-                const option = document.createElement('option');
-                option.value = 'test_child_1763434576';
-                option.textContent = 'Test Child';
-                childSelect.appendChild(option);
+                // Call backend API to get children
+                const response = await fetch(`${backendUrl}/api/users/${userId}/children`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.success || !data.children || data.children.length === 0) {
+                    log('⚠ No children found for this user', 'info');
+                    childSelect.disabled = true;
+                    return;
+                }
+
+                // Populate dropdown with children
+                data.children.forEach(child => {
+                    const option = document.createElement('option');
+                    option.value = child.childId;
+                    option.textContent = `${child.avatar} ${child.name}`;
+                    childSelect.appendChild(option);
+                });
 
                 childSelect.disabled = false;
-                log('✓ Children loaded', 'success');
+                log(`✓ Loaded ${data.count} child(ren)`, 'success');
             } catch (error) {
                 log(`❌ Failed to load children: ${error.message}`, 'error');
+                childSelect.disabled = true;
             }
         }
 
         // Load toys for a user
         async function loadToys(userId) {
             try {
+                const backendUrl = document.getElementById('backendUrl').value;
                 log(`Loading toys for user ${userId}...`, 'info');
 
                 const toySelect = document.getElementById('toySelect');
                 toySelect.innerHTML = '<option value="">-- Select a Toy --</option>';
 
-                // Hardcoded test toy
-                const option = document.createElement('option');
-                option.value = 'test_toy_1763434576';
-                option.textContent = 'Test Toy 1';
-                toySelect.appendChild(option);
+                // Call backend API to get toys
+                const response = await fetch(`${backendUrl}/api/users/${userId}/toys`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.success || !data.toys || data.toys.length === 0) {
+                    log('⚠ No toys found for this user', 'info');
+                    toySelect.disabled = true;
+                    return;
+                }
+
+                // Populate dropdown with toys
+                data.toys.forEach(toy => {
+                    const option = document.createElement('option');
+                    option.value = toy.toyId;
+                    option.textContent = `${toy.emoji} ${toy.name} (${toy.status})`;
+                    toySelect.appendChild(option);
+                });
 
                 toySelect.disabled = false;
 
-                // Also update the device ID to match the selected toy
-                document.getElementById('deviceId').value = 'test_toy_1763434576';
+                // Auto-select first toy and update device ID
+                if (data.toys.length > 0) {
+                    toySelect.value = data.toys[0].toyId;
+                    document.getElementById('toyId').value = data.toys[0].toyId;
+                    document.getElementById('deviceId').value = data.toys[0].toyId;
+                }
 
-                log('✓ Toys loaded', 'success');
+                log(`✓ Loaded ${data.count} toy(s)`, 'success');
             } catch (error) {
                 log(`❌ Failed to load toys: ${error.message}`, 'error');
+                toySelect.disabled = true;
             }
         }
 
