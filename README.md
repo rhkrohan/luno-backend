@@ -5,6 +5,8 @@
 > **Google Cloud AI Hackathon 2024** - Reimagining childhood play with AI-powered physical companions
 
 ---
+<img width="2545" height="1430" alt="image" src="https://github.com/user-attachments/assets/5c4469c6-dcce-4d9a-ab13-caa19c90e364" />
+
 
 ## The Problem
 
