@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Graph Viewer - Luno</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 0.9em;
+        }
+
+        .controls-container {
+            background: white;
+            padding: 20px 30px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        .control-group {
+            display: inline-block;
+            margin-right: 20px;
+            margin-bottom: 10px;
+        }
+
+        .form-label {
+            display: inline-block;
+            font-weight: 600;
+            margin-right: 8px;
+            color: #495057;
+            font-size: 0.9em;
+        }
+
+        .form-input {
+            padding: 8px 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 0.9em;
+            transition: border-color 0.3s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-right: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 5px 15px rgba(108, 117, 125, 0.4);
+        }
+
+        #stats-panel {
+            position: fixed;
+            top: 160px;
+            left: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+            min-width: 250px;
+            z-index: 900;
+            display: none;
+        }
+
+        .stats-header {
+            font-size: 1.1em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+        }
+
+        .stat-item {
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .stat-label {
+            color: #6c757d;
+            font-weight: 600;
+        }
+
+        .stat-value {
+            color: #667eea;
+            font-weight: 700;
+        }
+
+        #graph-container {
+            position: absolute;
+            top: 160px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+        }
+
+        #graph {
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        .node circle {
+            cursor: pointer;
+            stroke: white;
+            stroke-width: 2.5px;
+            transition: all 0.2s;
+        }
+
+        .node:hover circle {
+            stroke: #667eea;
+            stroke-width: 3.5px;
+        }
+
+        .node text {
+            font-size: 12px;
+            font-weight: 600;
+            pointer-events: none;
+            text-shadow: 1px 1px 3px rgba(255,255,255,0.8),
+                        -1px -1px 3px rgba(255,255,255,0.8),
+                        1px -1px 3px rgba(255,255,255,0.8),
+                        -1px 1px 3px rgba(255,255,255,0.8);
+            fill: #2d3748;
+        }
+
+        .link {
+            stroke: #667eea;
+            stroke-opacity: 0.6;
+            transition: all 0.2s;
+        }
+
+        .link:hover {
+            stroke: #764ba2;
+            stroke-opacity: 1;
+            stroke-width: 3px;
+        }
+
+        .tooltip {
+            position: fixed;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #667eea;
+            pointer-events: none;
+            z-index: 1001;
+            max-width: 300px;
+            display: none;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+
+        .tooltip h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .tooltip p {
+            margin: 5px 0;
+            font-size: 0.85em;
+            color: #495057;
+        }
+
+        .tooltip-label {
+            font-weight: 600;
+            color: #6c757d;
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+        }
+
+        .legend-header {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #495057;
+            font-size: 0.9em;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 0.85em;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .error-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 500px;
+            display: none;
+            z-index: 2000;
+        }
+
+        .error-message h2 {
+            color: #dc3545;
+            margin-bottom: 15px;
+        }
+
+        .error-message p {
+            color: #6c757d;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Knowledge Graph Viewer</h1>
+        <p>Visualize learning connections and knowledge patterns</p>
+    </div>
+
+    <div class="controls-container">
+        <div class="control-group">
+            <label class="form-label">Backend URL:</label>
+            <input type="text" class="form-input" id="backendUrl" value="https://api.myluno.space" style="width: 220px;">
+        </div>
+        <div class="control-group">
+            <label class="form-label">User:</label>
+            <select class="form-input" id="userId" style="width: 200px;" onchange="loadChildren()">
+                <option value="">Select User</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label class="form-label">Child:</label>
+            <select class="form-input" id="childId" style="width: 200px;">
+                <option value="">Select Child</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label class="form-label">Max Nodes:</label>
+            <input type="number" class="form-input" id="limit" value="50" min="10" max="200" style="width: 80px;">
+        </div>
+        <div class="control-group">
+            <label class="form-label">Min Weight:</label>
+            <input type="number" class="form-input" id="minWeight" value="0.0" min="0" max="1" step="0.1" style="width: 80px;">
+        </div>
+        <button class="btn" onclick="loadGraph()">Load Graph</button>
+        <button class="btn btn-secondary" onclick="resetZoom()">Reset Zoom</button>
+    </div>
+
+    <div id="stats-panel">
+        <div class="stats-header">Graph Statistics</div>
+        <div class="stat-item">
+            <span class="stat-label">Nodes:</span>
+            <span class="stat-value" id="nodeCount">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Links:</span>
+            <span class="stat-value" id="linkCount">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Topics:</span>
+            <span class="stat-value" id="topicCount">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Skills:</span>
+            <span class="stat-value" id="skillCount">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Interests:</span>
+            <span class="stat-value" id="interestCount">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Concepts:</span>
+            <span class="stat-value" id="conceptCount">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Traits:</span>
+            <span class="stat-value" id="traitCount">0</span>
+        </div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-header">Entity Types</div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #4299e1;"></div>
+            <span>Topic</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #48bb78;"></div>
+            <span>Skill</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ed8936;"></div>
+            <span>Interest</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #9f7aea;"></div>
+            <span>Concept</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #f56565;"></div>
+            <span>Personality Trait</span>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+    <div class="error-message" id="errorMessage"></div>
+
+    <div id="graph-container">
+        <svg id="graph"></svg>
+    </div>
+
+    <script>
+        const graphContainer = document.getElementById('graph-container');
+        const width = window.innerWidth;
+        const height = window.innerHeight - 160;
+
+        const svg = d3.select('#graph')
+            .attr('width', width)
+            .attr('height', height);
+
+        const g = svg.append('g');
+
+        // Add zoom behavior
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 10])
+            .on('zoom', (event) => {
+                g.attr('transform', event.transform);
+            });
+
+        svg.call(zoom);
+
+        // Color scale for different entity types
+        const colorScale = {
+            'topic': '#4299e1',
+            'skill': '#48bb78',
+            'interest': '#ed8936',
+            'concept': '#9f7aea',
+            'personality_trait': '#f56565'
+        };
+
+        let simulation;
+
+        function resetZoom() {
+            svg.transition().duration(750).call(
+                zoom.transform,
+                d3.zoomIdentity
+            );
+        }
+
+        async function loadUsers() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            try {
+                const response = await fetch(`${backendUrl}/api/simulator/users`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch users');
+                }
+
+                const data = await response.json();
+                const userSelect = document.getElementById('userId');
+
+                userSelect.innerHTML = '<option value="">Select User</option>';
+
+                data.users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.userId;
+                    option.textContent = `${user.displayName} (${user.email})`;
+                    userSelect.appendChild(option);
+                });
+
+                console.log(`Loaded ${data.users.length} users`);
+            } catch (error) {
+                console.error('Error loading users:', error);
+                showError('Error Loading Users', `Failed to load users: ${error.message}`);
+            }
+        }
+
+        async function loadChildren() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            const userId = document.getElementById('userId').value;
+            const childSelect = document.getElementById('childId');
+
+            childSelect.innerHTML = '<option value="">Select Child</option>';
+
+            if (!userId) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${backendUrl}/api/simulator/users/${userId}/children`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch children');
+                }
+
+                const data = await response.json();
+
+                data.children.forEach(child => {
+                    const option = document.createElement('option');
+                    option.value = child.childId;
+                    option.textContent = `${child.avatar} ${child.name} (${child.ageLevel})`;
+                    childSelect.appendChild(option);
+                });
+
+                console.log(`Loaded ${data.children.length} children for user ${userId}`);
+            } catch (error) {
+                console.error('Error loading children:', error);
+                showError('Error Loading Children', `Failed to load children: ${error.message}`);
+            }
+        }
+
+        async function loadGraph() {
+            const backendUrl = document.getElementById('backendUrl').value;
+            const userId = document.getElementById('userId').value;
+            const childId = document.getElementById('childId').value;
+            const limit = document.getElementById('limit').value;
+            const minWeight = document.getElementById('minWeight').value;
+
+            if (!userId || !childId) {
+                showError('Missing Information', 'Please select both a User and a Child to load the knowledge graph.');
+                return;
+            }
+
+            try {
+                const url = `${backendUrl}/api/simulator/children/${childId}/knowledge/graph?user_id=${userId}&limit=${limit}&minWeight=${minWeight}`;
+
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.graph || !data.graph.nodes || !data.graph.links) {
+                    throw new Error('Invalid graph data structure');
+                }
+
+                renderGraph(data.graph);
+                updateStats(data.graph);
+                document.getElementById('stats-panel').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error loading graph:', error);
+                showError('Error Loading Graph',
+                    `Failed to load knowledge graph: ${error.message}<br><br>
+                    Please ensure:<br>
+                    • Backend is running at ${backendUrl}<br>
+                    • User and Child are selected<br>
+                    • The child has knowledge graph data`);
+            }
+        }
+
+        function showError(title, message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.innerHTML = `<h2>${title}</h2><p>${message}</p>`;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        function updateStats(graph) {
+            const counts = {
+                topic: 0,
+                skill: 0,
+                interest: 0,
+                concept: 0,
+                personality_trait: 0
+            };
+
+            graph.nodes.forEach(node => {
+                if (counts.hasOwnProperty(node.type)) {
+                    counts[node.type]++;
+                }
+            });
+
+            document.getElementById('nodeCount').textContent = graph.nodes.length;
+            document.getElementById('linkCount').textContent = graph.links.length;
+            document.getElementById('topicCount').textContent = counts.topic;
+            document.getElementById('skillCount').textContent = counts.skill;
+            document.getElementById('interestCount').textContent = counts.interest;
+            document.getElementById('conceptCount').textContent = counts.concept;
+            document.getElementById('traitCount').textContent = counts.personality_trait;
+        }
+
+        function renderGraph(graph) {
+            // Clear existing graph
+            g.selectAll('*').remove();
+
+            // Stop existing simulation
+            if (simulation) {
+                simulation.stop();
+            }
+
+            // Create new simulation
+            simulation = d3.forceSimulation(graph.nodes)
+                .force('link', d3.forceLink(graph.links).id(d => d.id).distance(100))
+                .force('charge', d3.forceManyBody().strength(-400))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(d => 10 + Math.sqrt(d.mentionCount || 1) * 3));
+
+            // Create links
+            const link = g.append('g')
+                .selectAll('line')
+                .data(graph.links)
+                .join('line')
+                .attr('class', 'link')
+                .attr('stroke-width', d => Math.max(1, Math.sqrt(d.weight) * 3));
+
+            // Create nodes
+            const node = g.append('g')
+                .selectAll('g')
+                .data(graph.nodes)
+                .join('g')
+                .attr('class', 'node')
+                .call(drag(simulation));
+
+            // Add circles to nodes
+            node.append('circle')
+                .attr('r', d => 6 + Math.sqrt(d.mentionCount || 1) * 3)
+                .attr('fill', d => colorScale[d.type] || '#718096')
+                .on('mouseover', showTooltip)
+                .on('mouseout', hideTooltip)
+                .on('click', (event, d) => {
+                    event.stopPropagation();
+                    console.log('Node clicked:', d);
+                });
+
+            // Add labels to nodes
+            node.append('text')
+                .attr('dx', 12)
+                .attr('dy', 4)
+                .text(d => d.name);
+
+            // Update positions on each tick
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+        }
+
+        function drag(simulation) {
+            function dragstarted(event) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                event.subject.fx = event.subject.x;
+                event.subject.fy = event.subject.y;
+            }
+
+            function dragged(event) {
+                event.subject.fx = event.x;
+                event.subject.fy = event.y;
+            }
+
+            function dragended(event) {
+                if (!event.active) simulation.alphaTarget(0);
+                event.subject.fx = null;
+                event.subject.fy = null;
+            }
+
+            return d3.drag()
+                .on('start', dragstarted)
+                .on('drag', dragged)
+                .on('end', dragended);
+        }
+
+        function showTooltip(event, d) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'block';
+            tooltip.style.left = (event.pageX + 15) + 'px';
+            tooltip.style.top = (event.pageY + 15) + 'px';
+
+            const typeLabel = d.type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+            tooltip.innerHTML = `
+                <h3>${d.name}</h3>
+                <p><span class="tooltip-label">Type:</span> ${typeLabel}</p>
+                <p><span class="tooltip-label">Mentions:</span> ${d.mentionCount || 0}</p>
+                <p><span class="tooltip-label">Strength:</span> ${((d.strength || 0) * 100).toFixed(0)}%</p>
+                ${d.centrality ? `<p><span class="tooltip-label">Centrality:</span> ${d.centrality.toFixed(2)}</p>` : ''}
+                ${d.cluster ? `<p><span class="tooltip-label">Cluster:</span> ${d.cluster}</p>` : ''}
+            `;
+        }
+
+        function hideTooltip() {
+            document.getElementById('tooltip').style.display = 'none';
+        }
+
+        // Load config and initialize on page load
+        async function initializePage() {
+            try {
+                // Try to load config file
+                const response = await fetch('/simulator_config.json');
+                if (response.ok) {
+                    const config = await response.json();
+                    if (config.backend_url) {
+                        document.getElementById('backendUrl').value = config.backend_url;
+                    }
+                }
+            } catch (error) {
+                console.log('Could not load config:', error);
+            }
+
+            // Load users list
+            await loadUsers();
+
+            // Auto-load if URL has parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('userId') && urlParams.get('childId')) {
+                document.getElementById('userId').value = urlParams.get('userId');
+                await loadChildren();
+                document.getElementById('childId').value = urlParams.get('childId');
+                setTimeout(loadGraph, 500);
+            }
+        }
+
+        // Initialize when page loads
+        window.addEventListener('DOMContentLoaded', initializePage);
+    </script>
+</body>
+</html>

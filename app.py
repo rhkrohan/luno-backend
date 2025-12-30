@@ -13,8 +13,8 @@ from google.cloud import firestore
 load_dotenv()
 
 from whisper_stt import transcribe_audio
-from gpt_reply import get_gpt_reply
-from tts_elevenlabs import synthesize_speech  # Using ElevenLabs TTS
+from gemini_reply import get_gpt_reply  # Using Google Gemini for Google Cloud Hackathon
+from tts_elevenlabs_streaming import synthesize_speech  # Using ElevenLabs Streaming TTS
 from firebase_config import initialize_firebase
 from firestore_service import firestore_service
 from auth_middleware import require_device_auth
@@ -38,6 +38,7 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 ALLOWED_ORIGINS = [
     'https://myluno.space',
     'https://www.myluno.space',
+    'https://api.myluno.space',
     # 'http://localhost:8080'  # Uncomment for local development
 ]
 
@@ -254,6 +255,11 @@ def simulator():
 def test_simulator():
     """Serve the simplified ESP32 test simulator"""
     return send_file("simulators/esp32_test_simulator.html")
+
+@app.route("/knowledge-graph")
+def knowledge_graph_viewer():
+    """Serve the knowledge graph visualization interface"""
+    return send_file("simulators/knowledge_graph_viewer.html")
 
 @app.route("/simulator_config.json")
 def simulator_config():
@@ -1491,6 +1497,125 @@ def simulator_list_toys(user_id):
     except Exception as e:
         print(f"[ERROR] Failed to list toys: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/simulator/children/<child_id>/knowledge/graph", methods=["GET"])
+def simulator_get_knowledge_graph(child_id):
+    """
+    Get knowledge graph for simulator (SIMULATOR ONLY - No auth required)
+
+    Query params:
+    - user_id: Parent user ID (required)
+    - timeRange: last_week | last_month | all_time (default: all_time)
+    - entityTypes: comma-separated types (default: all)
+    - edgeTypes: comma-separated edge types (default: all)
+    - minWeight: 0.0-1.0 (default: 0.3)
+    - limit: max nodes (default: 50)
+    """
+    try:
+        from knowledge_graph_service import knowledge_graph_service
+        from datetime import datetime, timedelta
+
+        user_id = request.args.get('user_id')
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
+        # Parse query parameters
+        time_range = request.args.get('timeRange', 'all_time')
+        entity_types_param = request.args.get('entityTypes', '')
+        edge_types_param = request.args.get('edgeTypes', '')
+        min_weight = float(request.args.get('minWeight', 0.3))
+        limit = int(request.args.get('limit', 50))
+
+        entity_types = [t.strip() for t in entity_types_param.split(',') if t.strip()] if entity_types_param else None
+        edge_types = [t.strip() for t in edge_types_param.split(',') if t.strip()] if edge_types_param else None
+
+        # Get entities with filters
+        query_filter = {"limit": limit}
+        if entity_types and len(entity_types) == 1:
+            query_filter["type"] = entity_types[0]
+
+        entities = knowledge_graph_service.get_entities(user_id, child_id, query_filter)
+
+        # Apply time filter if needed
+        if time_range != 'all_time':
+            cutoff_date = datetime.utcnow()
+            if time_range == 'last_week':
+                cutoff_date -= timedelta(days=7)
+            elif time_range == 'last_month':
+                cutoff_date -= timedelta(days=30)
+
+            entities = [e for e in entities
+                       if e.get('lastMentionedAt') and e['lastMentionedAt'] > cutoff_date]
+
+        # Apply entity type filter (if multiple types)
+        if entity_types:
+            entities = [e for e in entities if e.get('type') in entity_types]
+
+        entity_ids = {e['id'] for e in entities}
+
+        # Get edges between these entities
+        edges_ref = firestore_service.db.collection("users").document(user_id)\
+            .collection("children").document(child_id)\
+            .collection("edges")
+
+        all_edges = []
+        query = edges_ref.where("weight", ">=", min_weight)
+
+        for edge_doc in query.stream():
+            edge = edge_doc.to_dict()
+
+            # Check if both entities are in our set
+            if edge['sourceEntityId'] in entity_ids and edge['targetEntityId'] in entity_ids:
+                # Apply edge type filter
+                if not edge_types or edge['edgeType'] in edge_types:
+                    all_edges.append(edge)
+
+        # Convert to D3 format
+        nodes = []
+        for idx, entity in enumerate(entities):
+            nodes.append({
+                'id': entity['id'],
+                'name': entity['name'],
+                'type': entity['type'],
+                'strength': entity.get('strength', 0),
+                'mentionCount': entity.get('mentionCount', 0),
+                'group': _get_node_group(entity['type']),
+                'centrality': entity.get('centrality', 0),
+                'cluster': entity.get('clusterId')
+            })
+
+        links = []
+        for edge in all_edges:
+            links.append({
+                'source': edge['sourceEntityId'],
+                'target': edge['targetEntityId'],
+                'type': edge['edgeType'],
+                'weight': edge['weight'],
+                'value': edge['weight'] * 10
+            })
+
+        return jsonify({
+            'success': True,
+            'graph': {
+                'nodes': nodes,
+                'links': links,
+                'stats': {
+                    'nodeCount': len(nodes),
+                    'linkCount': len(links),
+                    'filters': {
+                        'timeRange': time_range,
+                        'entityTypes': entity_types,
+                        'edgeTypes': edge_types,
+                        'minWeight': min_weight
+                    }
+                }
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Failed to get simulator graph visualization: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ==================== KNOWLEDGE GRAPH API ENDPOINTS ====================

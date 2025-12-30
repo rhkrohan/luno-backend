@@ -1,10 +1,10 @@
 {
   "user_id": "test_user_1763434576",
-  "child_id": "test_child_1763434576",
+  "child_id": "test_child_id_1763434576",
   "toy_id": "test_toy_1763434576",
   "device_id": "test_toy_1763434576",
   "email": "test@lunotoys.com",
-  "backend_url": "http://3.91.215.115",
+  "backend_url": "https://api.myluno.space",
   "auto_play_response": true,
   "save_conversations": true
 }

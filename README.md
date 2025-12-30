@@ -2,6 +2,78 @@
 
 **Complete system documentation for the Luno interactive toy companion platform**
 
+> **Google Cloud AI Hackathon 2024** - Reimagining childhood play with AI-powered physical companions
+
+---
+
+## The Problem
+
+In today's digital age, **children are spending unprecedented amounts of time on screens** - tablets, phones, and computers - leading to decreased physical activity, reduced face-to-face interactions, and growing concerns about developmental impacts. Parents struggle with:
+
+- **Limited alternatives**: Most "smart" toys are still screen-based or lack meaningful AI interaction
+- **Safety concerns**: Existing AI companions lack proper content moderation and parental oversight
+- **Lost conversations**: Parents have no visibility into what their children talk about, learn, or are curious about
+- **Passive consumption**: Digital content promotes passive watching rather than active conversation and critical thinking
+
+**The core challenge**: How do we create an engaging, educational AI companion that keeps children away from screens while ensuring their safety and giving parents peace of mind?
+
+---
+
+## Our Solution
+
+**Luno Toys** is a safety-first, AI-powered physical toy companion platform that combines hardware, cloud AI, and parental oversight to create a new category of interactive play.
+
+### What Makes Luno Different
+
+**Physical-First Design**
+Real ESP32-powered toys that children can hold, hug, and interact with naturally - no screens required. The physical presence creates emotional connections that purely digital assistants cannot replicate.
+
+**Google Cloud-Powered Intelligence**
+- **Cloud Firestore**: Real-time conversation storage, user management, and scalable data architecture
+- **AI Conversations**: Natural language processing for engaging, age-appropriate dialogues
+- **Knowledge Graph**: Personalized learning powered by Firestore's graph-like subcollections, tracking each child's interests, skills, and developmental milestones
+
+**Safety-First Architecture**
+- Real-time content moderation with automatic flagging for inappropriate content, personal information sharing, and emotional distress indicators
+- Comprehensive parent dashboard built on Firestore's real-time sync capabilities
+- Severity-based alert system (Critical/High/Medium) with immediate notifications
+- Complete conversation transcripts and analytics
+
+**Privacy & Monitoring**
+Parents get unprecedented visibility through:
+- Real-time conversation monitoring via Firestore listeners
+- Usage analytics and engagement metrics
+- Safety alerts for flagged conversations
+- Multi-child support with personalized profiles
+
+### Key Innovations
+
+**Hardware-Cloud Integration**: Seamless ESP32-to-Google Cloud pipeline with ADPCM audio compression, optimized for low-latency interactions
+
+**Intelligent Knowledge Graphs**: Built on Firestore subcollections (`users/{id}/children/{id}/entities/` and `edges/`), creating personalized learning graphs that grow with each conversation
+
+**Scalable Architecture**: Firestore's document model allows independent scaling of users, children, conversations, and messages with efficient cost management (array-based message storage reduces write operations by 67%)
+
+**Real-time Safety**: Every message is analyzed and flagged in real-time, with updates pushed to parents instantly through Firestore's live listeners
+
+---
+
+## Google Cloud Technologies
+
+**Cloud Firestore (Primary Database)**
+- User authentication and management
+- Real-time conversation storage with subcollections
+- Knowledge graph entities and edges
+- Parent dashboard data sync
+- Scalable to millions of conversations
+
+**Architecture Benefits**
+- **NoSQL Flexibility**: Dynamically structured conversations, varied child profiles, and extensible knowledge graphs
+- **Real-time Sync**: Parents see conversations as they happen via Firestore listeners
+- **Offline Support**: Firestore SDK enables offline-first mobile apps for parents
+- **Security Rules**: Fine-grained access control ensuring parents only see their own data
+- **Scalability**: Auto-scaling serverless architecture built for growth
+
 ---
 
 ## 📋 Table of Contents
