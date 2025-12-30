@@ -26,15 +26,12 @@ def create_test_user(db, user_id, email, display_name):
             "notifications": True,
             "theme": "light"
         },
-        "childrenCount": 0,
-        "toys": [],
         "stats": {
             "totalConversations": 0,
             "totalConversationDurationSec": 0,
             "flaggedConversations": 0,
             "lastConversationAt": None,
-            "lastFlaggedAt": None,
-            "lastActivityAt": datetime.now().isoformat()
+            "lastFlaggedAt": None
         }
     }
 
@@ -84,11 +81,6 @@ def create_test_child(db, user_id, child_id, name, age_level="elementary"):
     db.collection("users").document(user_id)\
         .collection("children").document(child_id).set(child_data)
 
-    # Update user's childrenCount
-    db.collection("users").document(user_id).update({
-        "childrenCount": 1
-    })
-
     print(f"✓ Created child: {child_id}")
     print(f"  Name: {name}")
     print(f"  Age Level: {age_level}\n")
@@ -98,6 +90,7 @@ def create_test_child(db, user_id, child_id, name, age_level="elementary"):
 def create_test_toy(db, user_id, toy_id, name, assigned_child_id=None):
     """Create a test toy document"""
     toy_data = {
+        "deviceId": toy_id,  # Same as document ID per schema
         "name": name,
         "emoji": "🦄",
         "assignedChildId": assigned_child_id,
@@ -120,16 +113,13 @@ def create_test_toy(db, user_id, toy_id, name, assigned_child_id=None):
 
         # Connection
         "connectionType": "Wi-Fi",
-        "wifiNetwork": "Simulator-Network"
+        "wifiNetwork": "Simulator-Network",
+        "wifiSSID": "Simulator-Network",  # Duplicate of wifiNetwork per schema
+        "wifiConnected": True
     }
 
     db.collection("users").document(user_id)\
         .collection("toys").document(toy_id).set(toy_data)
-
-    # Add toy to user's toys array
-    db.collection("users").document(user_id).update({
-        "toys": [toy_id]
-    })
 
     print(f"✓ Created toy: {toy_id}")
     print(f"  Name: {name}")

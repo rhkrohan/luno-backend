@@ -1,89 +1,74 @@
-# 📚 Luno Backend Documentation
+# Luno Backend Documentation
 
 Complete documentation for the Luno interactive toy backend system.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 New to the project? Start here:
 
-1. **[QUICK_START.md](./QUICK_START.md)** - Get up and running in 5 minutes
-   - Install dependencies
-   - Configure environment
-   - Create test data
-   - Test with simulator
+1. **[Quick Start Guide](./guides/QUICK_START.md)** - Get up and running in 5 minutes
+2. **[Setup Guide](./guides/SETUP.md)** - Complete setup instructions
+3. **[DOCS_SUMMARY.md](./DOCS_SUMMARY.md)** - Documentation quick reference
 
 ---
 
-## 📖 Documentation Index
+## Documentation Structure
 
-### Setup & Configuration
+### Deployment
+Production deployment and infrastructure guides.
 
-- **[SETUP.md](./SETUP.md)** - Complete setup guide
-  - Virtual environment setup
-  - Environment variables (`.env` file)
-  - Firebase service account configuration
-  - Firestore database structure
-  - Troubleshooting common setup issues
+- **[AWS EC2 Deployment](./deployment/AWS_EC2_DEPLOYMENT.md)** - Complete AWS EC2 deployment guide
+- **[AWS Deployment Summary](./deployment/AWS_DEPLOYMENT_SUMMARY.md)** - Deployment summary and overview
+- **[Deployment Quickstart](./deployment/DEPLOYMENT_QUICKSTART.md)** - Quick deployment instructions
 
-### Authentication
+### Guides
+Getting started, setup, and testing guides.
 
-- **[AUTHENTICATION.md](./AUTHENTICATION.md)** - Authentication system guide
-  - How authentication works
-  - Required headers for ESP32/devices
-  - Firestore validation process
-  - In-memory caching strategy
-  - ESP32 implementation examples
-  - Testing authentication
-  - Security considerations
-  - Troubleshooting auth errors
+- **[Quick Start](./guides/QUICK_START.md)** - Get up and running quickly
+- **[Setup Guide](./guides/SETUP.md)** - Complete setup instructions
+- **[Simulator Guide](./guides/SIMULATOR_GUIDE.md)** - Testing with CLI simulator
+- **[Simulator Setup Guide](./guides/SIMULATOR_SETUP_GUIDE.md)** - Simulator configuration
 
-### Testing & Development
+### API Documentation
+Authentication, sessions, and API reference.
 
-- **[SIMULATOR_GUIDE.md](./SIMULATOR_GUIDE.md)** - Testing without hardware
-  - CLI simulator usage
-  - Web simulator interface
-  - Testing endpoints
-  - Recording audio
-  - Managing conversation sessions
+- **[Authentication](./api/AUTHENTICATION.md)** - Authentication system guide
+- **[Session Management](./api/SESSION_MANAGEMENT.md)** - Session management documentation
 
-### Hardware Integration
+### Architecture
+System design, structure, and implementation details.
 
-- **[ESP32_INTEGRATION_EXAMPLE.md](./ESP32_INTEGRATION_EXAMPLE.md)** - ESP32 hardware code
-  - Arduino/C++ code examples
-  - Required headers
-  - Audio upload implementation
-  - Text upload implementation
-  - Session management
-  - Error handling
+- **[Knowledge Graph](./architecture/KNOWLEDGE_GRAPH.md)** - Knowledge graph overview
+- **[Knowledge Graph Implementation](./architecture/KNOWLEDGE_GRAPH_IMPLEMENTATION.md)** - Implementation details
+- **[Firestore Restructure Summary](./architecture/FIRESTORE_RESTRUCTURE_SUMMARY.md)** - Database structure
+- **[Directory Structure](./architecture/DIRECTORY_STRUCTURE.md)** - Project organization
+- **[Organization Summary](./architecture/ORGANIZATION_SUMMARY.md)** - Overall system organization
 
-### Navigation & Reference
+### Examples
+Hardware integration and code examples.
 
-- **[DOCS_SUMMARY.md](./DOCS_SUMMARY.md)** - Documentation quick reference
-  - Authentication system overview
-  - File organization
-  - Where to find specific information
-  - Recent updates
-  - Quick command reference
+- **[ESP32 Integration Example](./examples/ESP32_INTEGRATION_EXAMPLE.md)** - ESP32 hardware code examples
 
 ---
 
-## 🎯 Find What You Need
+## Quick Navigation
 
 | I want to... | Read this... |
 |--------------|--------------|
-| Get started quickly | [QUICK_START.md](./QUICK_START.md) |
-| Do a complete setup | [SETUP.md](./SETUP.md) |
-| Understand authentication | [AUTHENTICATION.md](./AUTHENTICATION.md) |
-| Test without hardware | [SIMULATOR_GUIDE.md](./SIMULATOR_GUIDE.md) |
-| Write ESP32 code | [ESP32_INTEGRATION_EXAMPLE.md](./ESP32_INTEGRATION_EXAMPLE.md) |
-| Find specific info | [DOCS_SUMMARY.md](./DOCS_SUMMARY.md) |
-| See the big picture | [../README.md](../README.md) |
+| Get started quickly | [Quick Start](./guides/QUICK_START.md) |
+| Set up the backend | [Setup Guide](./guides/SETUP.md) |
+| Deploy to production | [AWS EC2 Deployment](./deployment/AWS_EC2_DEPLOYMENT.md) |
+| Understand authentication | [Authentication](./api/AUTHENTICATION.md) |
+| Test without hardware | [Simulator Guide](./guides/SIMULATOR_GUIDE.md) |
+| Write ESP32 code | [ESP32 Integration](./examples/ESP32_INTEGRATION_EXAMPLE.md) |
+| Understand the architecture | [Directory Structure](./architecture/DIRECTORY_STRUCTURE.md) |
+| Learn about knowledge graphs | [Knowledge Graph](./architecture/KNOWLEDGE_GRAPH.md) |
 
 ---
 
-## 🔐 Authentication Quick Reference
+## Authentication Quick Reference
 
 Your backend uses **custom header-based authentication**:
 
@@ -101,11 +86,11 @@ Your backend uses **custom header-based authentication**:
 3. In-memory cache (5-min TTL) improves performance
 4. Request proceeds with `request.auth_context` available
 
-See [AUTHENTICATION.md](./AUTHENTICATION.md) for complete details.
+See [Authentication Documentation](./api/AUTHENTICATION.md) for complete details.
 
 ---
 
-## 🛠️ Quick Commands
+## Quick Commands
 
 ### Start Backend
 ```bash
@@ -133,14 +118,15 @@ http://localhost:5005/simulator
 
 ---
 
-## 📁 File Organization
+## File Organization
 
 ### Configuration Files
 ```
 backend/
-├── .env                          # Environment variables
+├── .env                          # Environment variables (DO NOT COMMIT)
+├── .env.example                  # Environment template
 ├── .gitignore                    # Git ignore rules
-├── firebase-credentials.json     # Firebase service account key
+├── firebase-credentials.json     # Firebase service account key (DO NOT COMMIT)
 └── simulator_config.json         # Simulator configuration
 ```
 
@@ -152,86 +138,55 @@ backend/
 ├── firebase_config.py            # Firebase initialization
 ├── firestore_service.py          # Firestore operations
 ├── gpt_reply.py                  # GPT conversation logic
+├── knowledge_graph_service.py    # Knowledge graph functionality
+├── graph_query_service.py        # Graph query operations
+├── session_manager.py            # Session management
 ├── whisper_stt.py                # Speech-to-text
 ├── tts_elevenlabs.py             # Text-to-speech
 └── requirements.txt              # Python dependencies
 ```
 
-### Testing/Development
+### Documentation Structure
 ```
-backend/
-├── esp32_simulator.py            # CLI simulator
-├── simulator.html                # Web simulator
-└── setup_test_data.py            # Test data creation
+backend/docs/
+├── README.md                     # This file
+├── DOCS_SUMMARY.md               # Quick reference
+├── deployment/                   # Deployment guides
+├── guides/                       # Setup and testing guides
+├── api/                          # API documentation
+├── architecture/                 # System architecture docs
+└── examples/                     # Code examples
 ```
 
 ---
 
-## 🔍 Common Tasks
-
-### Setting Up Environment
-
-1. Create `.env` file:
-```bash
-FIREBASE_SERVICE_ACCOUNT_PATH=firebase-credentials.json
-OPENAI_API_KEY=sk-proj-...
-ELEVENLABS_API_KEY=...
-PORT=5005
-```
-
-2. Download Firebase credentials
-3. Install dependencies: `pip install -r requirements.txt`
-4. Start server: `python app.py`
-
-See [SETUP.md](./SETUP.md) for details.
-
-### Testing Authentication
-
-1. Create test account: `python setup_test_data.py`
-2. Test auth endpoint:
-```bash
-curl http://localhost:5005/auth/test \
-  -H "X-User-ID: test_user_1763434576" \
-  -H "X-Device-ID: test_toy_1763434576" \
-  -H "X-Email: test@lunotoys.com"
-```
-
-See [AUTHENTICATION.md](./AUTHENTICATION.md) for details.
-
-### Using Simulators
-
-**Web Simulator:**
-- Open: `http://localhost:5005/simulator`
-- Configure settings
-- Send text or record audio
-- View responses
-
-**CLI Simulator:**
-```bash
-python esp32_simulator.py
-# Press 1 for text mode
-# Press 2 for audio recording
-# Press 7 to test authentication
-```
-
-See [SIMULATOR_GUIDE.md](./SIMULATOR_GUIDE.md) for details.
-
----
-
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Quick Fixes
 
 | Issue | Solution | Doc Reference |
 |-------|----------|---------------|
-| Firebase not initializing | Check `.env` file and `firebase-credentials.json` | [SETUP.md](./SETUP.md) |
-| Authentication failing | Verify headers and Firestore data | [AUTHENTICATION.md](./AUTHENTICATION.md) |
-| Can't start server | Check port 5005 availability, verify venv | [SETUP.md](./SETUP.md) |
-| Simulator not working | Check backend is running, verify config | [SIMULATOR_GUIDE.md](./SIMULATOR_GUIDE.md) |
+| Firebase not initializing | Check `.env` file and `firebase-credentials.json` | [Setup Guide](./guides/SETUP.md) |
+| Authentication failing | Verify headers and Firestore data | [Authentication](./api/AUTHENTICATION.md) |
+| Can't start server | Check port 5005 availability, verify venv | [Setup Guide](./guides/SETUP.md) |
+| Simulator not working | Check backend is running, verify config | [Simulator Guide](./guides/SIMULATOR_GUIDE.md) |
+| Deployment issues | Review AWS configuration | [AWS Deployment](./deployment/AWS_EC2_DEPLOYMENT.md) |
 
 ---
 
-## 📚 External Resources
+## Security Notes
+
+**Never commit these files to version control:**
+- `.env` - Contains API keys and secrets
+- `firebase-credentials.json` - Firebase service account credentials
+- `*.pem`, `*.key` - SSL certificates and private keys
+- Any files in `certs/` directory
+
+The `.gitignore` file is configured to protect these files automatically.
+
+---
+
+## External Resources
 
 - [Firebase Documentation](https://firebase.google.com/docs)
 - [OpenAI API Reference](https://platform.openai.com/docs)
@@ -240,7 +195,7 @@ See [SIMULATOR_GUIDE.md](./SIMULATOR_GUIDE.md) for details.
 
 ---
 
-## 🆘 Need Help?
+## Need Help?
 
 1. Check the relevant documentation file above
 2. Look in the "Troubleshooting" section
@@ -250,6 +205,6 @@ See [SIMULATOR_GUIDE.md](./SIMULATOR_GUIDE.md) for details.
 
 ---
 
-**Happy Building! 🚀**
+**Happy Building!**
 
 For complete system documentation, see [../README.md](../README.md)

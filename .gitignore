@@ -1,13 +1,71 @@
-# Firebase Credentials - NEVER COMMIT THESE!
+# ============================================
+# SENSITIVE FILES - NEVER COMMIT THESE!
+# ============================================
+
+# Firebase Credentials
 firebase-credentials.json
 *-firebase-adminsdk-*.json
 serviceAccountKey.json
 firebase-key.json
+google-credentials.json
+gcp-*.json
 
 # Environment files
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.test
+*.env
+.envrc
+
+# API Keys and Secrets
+*secret*
+*SECRET*
+.secrets/
+secrets/
+api-keys.json
+api_keys.json
+*.apikey
+*.token
+
+# Certificates and Keys
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.csr
+*.der
+*.cert
+*.keystore
+certs/
+certificates/
+
+# SSH Keys
+id_rsa
+id_dsa
+id_ed25519
+*.ppk
+authorized_keys
+
+# AWS/Cloud Credentials
+.aws/
+*.aws
+credentials
+config
+*credentials.json
+*credentials.yaml
+
+# Database
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.bak
 
 # Service files with secrets
 *.service
@@ -37,23 +95,58 @@ venv/
 ENV/
 env/
 
-# IDE
+# IDE and Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+.vscode/settings.json
+.code-workspace
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Temporary files
+# Temporary files and backups
 temp/
+tmp/
 simulator_temp/
 backups/
+backup/
+*.backup
+*.bak
 *.tmp
+*.temp
+*.old
+*.orig
+*.swp
+*.swo
 *.log
+*.log.*
+logs/
+*.pid
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
 # Audio files (except audio directory samples)
 *.wav
@@ -64,7 +157,36 @@ backups/
 # Testing
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+*-checkpoint.ipynb
+
+# Virtual Environments
+.Python
+[Bb]in
+[Ii]nclude
+[Ll]ib
+[Ll]ib64
+[Ll]ocal
+[Ss]cripts
+pyvenv.cfg
+pip-selfcheck.json
+
+# Flask/Web Server
+instance/
+.webassets-cache
+*.manifest
+*.spec
 
 # Documentation (optional - uncomment if you don't want to commit docs)
 # *.md

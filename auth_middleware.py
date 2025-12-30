@@ -30,27 +30,27 @@ def validate_auth_headers():
     # Accept both X-User-Email (mobile app standard) and X-Email (legacy)
     email = request.headers.get("X-User-Email") or request.headers.get("X-Email")
     user_id = request.headers.get("X-User-ID")
-    device_id = request.headers.get("X-Device-ID")
+    toy_id = request.headers.get("X-Device-ID")
     session_id = request.headers.get("X-Session-ID")
 
     # Log if ESP32 still sends session ID (backward compatibility during migration)
     if session_id:
         print(f"[INFO] Ignoring ESP32-provided session ID: {session_id} (backend manages sessions)")
 
-    if not device_id:
+    if not toy_id:
         raise AuthenticationError("Missing required header: X-Device-ID", 400)
 
     if not email and not user_id:
         raise AuthenticationError("Missing required header: X-User-Email (or X-Email) or X-User-ID", 400)
 
-    return email, user_id, device_id, session_id
+    return email, user_id, toy_id, session_id
 
 
-def check_cache(email, user_id, device_id, session_id):
+def check_cache(email, user_id, toy_id, session_id):
     # Cache key uses email OR user_id (whichever is provided)
     # Note: session_id removed from cache key (sessions managed separately by session_manager)
     cache_key = email if email else user_id
-    key = f"{cache_key}:{device_id}"
+    key = f"{cache_key}:{toy_id}"
     entry = auth_cache.get(key)
 
     if entry and entry["expires_at"] > time.time():
@@ -59,25 +59,25 @@ def check_cache(email, user_id, device_id, session_id):
     return None
 
 
-def write_cache(email, user_id, device_id, session_id, auth_context):
+def write_cache(email, user_id, toy_id, session_id, auth_context):
     # Cache key uses email OR user_id (whichever is provided)
     # Note: session_id removed from cache key (sessions managed separately by session_manager)
     cache_key = email if email else user_id
-    key = f"{cache_key}:{device_id}"
+    key = f"{cache_key}:{toy_id}"
     auth_cache[key] = {
         "auth_context": auth_context,
         "expires_at": time.time() + CACHE_TTL_SECONDS,
     }
 
 
-def validate_with_firestore(email, user_id, device_id):
+def validate_with_firestore(email, user_id, toy_id):
     """
     Validates device authentication using email OR user_id.
 
     Args:
         email: User email (from ESP32 WiFi pairing)
         user_id: User ID (from simulator/testing)
-        device_id: Device/toy ID
+        toy_id: Device/toy ID
 
     Returns:
         dict: Contains user_data and toy_data for caching
@@ -110,18 +110,18 @@ def validate_with_firestore(email, user_id, device_id):
 
     # Check if device/toy exists in user's toys subcollection
     toy_ref = firestore_service.db.collection("users").document(user_id)\
-        .collection("toys").document(device_id)
+        .collection("toys").document(toy_id)
     toy_doc = toy_ref.get()
 
     if not toy_doc.exists:
         raise AuthenticationError("Device not associated with this user", 403)
 
-    print(f"[AUTH] ✓ Device {device_id} verified")
+    print(f"[AUTH] ✓ Device {toy_id} verified")
 
     # Return validation data for caching
     return {
         "user_id": user_id,
-        "device_id": device_id,
+        "toy_id": toy_id,
         "email": user_doc.to_dict().get("email", ""),
         "user_data": user_doc.to_dict(),
         "toy_data": toy_doc.to_dict()
@@ -132,10 +132,10 @@ def require_device_auth(f):
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         try:
-            email, user_id, device_id, session_id = validate_auth_headers()
+            email, user_id, toy_id, session_id = validate_auth_headers()
 
             # Check cache
-            cached_context = check_cache(email, user_id, device_id, session_id)
+            cached_context = check_cache(email, user_id, toy_id, session_id)
             if cached_context:
                 print("[AUTH] ✓ Cache hit")
                 request.auth_context = cached_context
@@ -143,10 +143,10 @@ def require_device_auth(f):
 
             # Validate with Firestore
             print("[AUTH] Cache miss → Validating with Firestore…")
-            auth_context = validate_with_firestore(email, user_id, device_id)
+            auth_context = validate_with_firestore(email, user_id, toy_id)
 
             # Cache the result
-            write_cache(email, user_id, device_id, session_id, auth_context)
+            write_cache(email, user_id, toy_id, session_id, auth_context)
 
             # Set context for the endpoint to use
             request.auth_context = auth_context

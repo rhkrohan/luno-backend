@@ -55,7 +55,7 @@ def synthesize_speech(text, output_path):
         try:
             # Convert MP3 to WAV and resample to 16kHz using ffmpeg with exact ESP32 format
             subprocess.run([
-                "ffmpeg", "-i", temp_path, 
+                "/usr/local/bin/ffmpeg", "-i", temp_path, 
                 "-ar", "16000",         # 16000 Hz sample rate
                 "-ac", "1",             # mono channel
                 "-acodec", "pcm_s16le", # PCM signed 16-bit little-endian
@@ -72,7 +72,7 @@ def synthesize_speech(text, output_path):
             # Use ffprobe to verify audio format
             try:
                 result = subprocess.run([
-                    "ffprobe", "-v", "quiet", "-print_format", "json", 
+                    "/usr/local/bin/ffprobe", "-v", "quiet", "-print_format", "json", 
                     "-show_format", "-show_streams", abs_output_path
                 ], capture_output=True, text=True, check=True)
                 import json

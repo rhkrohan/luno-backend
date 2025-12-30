@@ -26,7 +26,7 @@ def test_valid_authentication(config):
     headers = {
         "X-Session-ID": "test_session_workflow",
         "X-User-ID": config['user_id'],
-        "X-Device-ID": config['device_id'],
+        "X-Device-ID": config['toy_id'],
         "X-Email": config['email'],
     }
 
@@ -58,7 +58,7 @@ def test_missing_email(config):
     headers = {
         "X-Session-ID": "test_session_workflow",
         "X-User-ID": config['user_id'],
-        "X-Device-ID": config['device_id'],
+        "X-Device-ID": config['toy_id'],
         # Missing X-Email
     }
 
@@ -91,7 +91,7 @@ def test_wrong_email(config):
     headers = {
         "X-Session-ID": "test_session_workflow",
         "X-User-ID": config['user_id'],
-        "X-Device-ID": config['device_id'],
+        "X-Device-ID": config['toy_id'],
         "X-Email": "wrong@example.com",  # Wrong email
     }
 
@@ -130,7 +130,7 @@ def test_wrong_device(config):
 
     print(f"\nRequest URL: {url}")
     print(f"Headers: {json.dumps(headers, indent=2)}")
-    print(f"Note: Device ID should be '{config['device_id']}' but using 'wrong_device_id'")
+    print(f"Note: Toy ID should be '{config['toy_id']}' but using 'wrong_device_id'")
 
     try:
         response = requests.get(url, headers=headers, timeout=5)
@@ -159,8 +159,7 @@ def test_text_upload_with_auth(config):
         "X-Session-ID": "test_session_workflow",
         "X-User-ID": config['user_id'],
         "X-Child-ID": config['child_id'],
-        "X-Toy-ID": config['toy_id'],
-        "X-Device-ID": config['device_id'],
+        "X-Device-ID": config['toy_id'],
         "X-Email": config['email'],
     }
 

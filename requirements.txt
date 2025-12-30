@@ -34,3 +34,4 @@ deepgram-sdk
 firebase-admin>=6.0.0
 pyaudio>=0.2.11
 python-dotenv>=1.0.0
+flask-cors>=4.0.0

@@ -1,12 +1,10 @@
 # ESP32 Toy Backend 123
 from dotenv import load_dotenv
-from flask import Flask, request, send_file, jsonify, g
-from flask_cors import CORS
+from flask import Flask, request, send_file, jsonify
 import os, datetime, time
 import struct
 import wave
 import threading
-import uuid
 from google.cloud import firestore
 
 # Load environment variables from .env file
@@ -14,134 +12,23 @@ load_dotenv()
 
 from whisper_stt import transcribe_audio
 from gpt_reply import get_gpt_reply
-from tts_elevenlabs import synthesize_speech  # Using ElevenLabs TTS
+from backups.tts import synthesize_speech  # Using OpenAI TTS (ElevenLabs has payment issue)
 from firebase_config import initialize_firebase
 from firestore_service import firestore_service
 from auth_middleware import require_device_auth
 from session_manager import SessionManager
 
-# Initialize logging configuration BEFORE creating Flask app
-from logging_config import setup_logging, get_logger, log_execution_time
-
 app = Flask(__name__)
-
-# Setup logging (will integrate with Gunicorn if running under Gunicorn)
-setup_logging(app)
-logger = get_logger(__name__)
 TEMP_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp")
 AUDIO_DIR = os.path.join(os.path.dirname(__file__), "audio")
 os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
-# ==================== CORS CONFIGURATION ====================
-# Allowed origins - restrict to your domain only for security
-ALLOWED_ORIGINS = [
-    'https://myluno.space',
-    'https://www.myluno.space',
-    # 'http://localhost:8080'  # Uncomment for local development
-]
-
-# Configure CORS with specific origins
-CORS(app,
-     origins=ALLOWED_ORIGINS,
-     allow_headers=['Content-Type', 'X-Audio-Format', 'X-Device-ID', 'X-User-Email',
-                    'X-User-ID', 'X-Session-ID', 'X-Child-ID', 'X-Sample-Rate',
-                    'X-Channels', 'X-Bits-Per-Sample', 'User-Agent', 'X-Email'],
-     methods=['GET', 'POST', 'PUT', 'OPTIONS'],
-     supports_credentials=True,
-     max_age=3600)  # Cache preflight requests for 1 hour
-
-logger.info(f"CORS configured for origins: {ALLOWED_ORIGINS}")
-
-# ==================== MIDDLEWARE AND ERROR HANDLERS ====================
-
-@app.before_request
-def before_request():
-    """Generate request ID and log incoming requests"""
-    g.request_id = str(uuid.uuid4())[:8]
-    g.start_time = time.time()
-
-    # Store auth context in g for logging
-    if hasattr(request, 'auth_context'):
-        g.user_id = request.auth_context.get('user_id', '-')
-        g.device_id = request.auth_context.get('toy_id', '-')
-    else:
-        g.user_id = '-'
-        g.device_id = '-'
-
-    logger.info(
-        f"Incoming request: {request.method} {request.path} | "
-        f"Remote: {request.remote_addr} | "
-        f"Content-Type: {request.content_type} | "
-        f"Content-Length: {request.content_length or 0}"
-    )
-
-
-@app.after_request
-def after_request(response):
-    """Log request completion"""
-    duration = time.time() - g.get('start_time', time.time())
-
-    logger.info(
-        f"Request completed: {request.method} {request.path} | "
-        f"Status: {response.status_code} | "
-        f"Duration: {duration:.3f}s | "
-        f"Response-Size: {response.content_length or 0}"
-    )
-
-    # Add request ID to response headers for tracking
-    response.headers['X-Request-ID'] = g.get('request_id', '-')
-
-    return response
-
-
-@app.errorhandler(400)
-def bad_request_error(error):
-    """Handle 400 Bad Request errors"""
-    logger.warning(f"Bad request: {request.path} | Error: {str(error)}")
-    return jsonify({"error": "Bad request", "message": str(error)}), 400
-
-
-@app.errorhandler(403)
-def forbidden_error(error):
-    """Handle 403 Forbidden errors"""
-    logger.warning(f"Forbidden access: {request.path} | Error: {str(error)}")
-    return jsonify({"error": "Forbidden", "message": str(error)}), 403
-
-
-@app.errorhandler(404)
-def not_found_error(error):
-    """Handle 404 Not Found errors"""
-    logger.warning(f"Not found: {request.path}")
-    return jsonify({"error": "Not found"}), 404
-
-
-@app.errorhandler(500)
-def internal_server_error(error):
-    """Handle 500 Internal Server errors"""
-    logger.error(f"Internal server error: {request.path}", exc_info=True)
-    return jsonify({"error": "Internal server error"}), 500
-
-
-@app.errorhandler(Exception)
-def handle_exception(error):
-    """Handle all uncaught exceptions"""
-    logger.error(
-        f"Unhandled exception in {request.method} {request.path}: {str(error)}",
-        exc_info=True
-    )
-    return jsonify({"error": "Internal server error", "message": str(error)}), 500
-
-
 # Initialize Firebase on startup
-logger.info("Initializing Firebase...")
 initialize_firebase()
-logger.info("Firebase initialization completed")
 
 # Initialize session manager (backend-managed sessions)
-logger.info("Initializing session manager...")
 session_manager = SessionManager(firestore_service)
-logger.info("Session manager initialized successfully")
 
 # Track active conversations: session_id -> {conversation_id, user_id, child_id, start_time}
 # Note: This dict is now managed by session_manager (kept for backward compatibility)
@@ -155,12 +42,12 @@ def run_cleanup_loop():
         try:
             session_manager.cleanup_expired_sessions()
         except Exception as e:
-            logger.error(f"Session cleanup failed: {str(e)}", exc_info=True)
+            print(f"[ERROR] Session cleanup failed: {e}")
 
 # Start cleanup thread as daemon (will exit when main program exits)
 cleanup_thread = threading.Thread(target=run_cleanup_loop, daemon=True)
 cleanup_thread.start()
-logger.info("Background session cleanup task started (60s interval)")
+print("[INFO] Background session cleanup task started")
 
 # Old get_or_create_conversation() and end_conversation_session() functions removed
 # Session management now handled by session_manager
@@ -230,15 +117,12 @@ def decompress_adpcm_to_wav(adpcm_data, output_path, sample_rate=16000):
             wav_file.setsampwidth(2)  # 16-bit
             wav_file.setframerate(sample_rate)
             wav_file.writeframes(pcm_data)
-
-        logger.info(
-            f"ADPCM decompression successful: {len(adpcm_data)} bytes -> "
-            f"{len(decoded_samples)} samples | Output: {output_path}"
-        )
+        
+        print(f"[INFO] ADPCM decompressed: {len(adpcm_data)} bytes -> {len(decoded_samples)} samples")
         return True
-
+        
     except Exception as e:
-        logger.error(f"ADPCM decompression failed: {str(e)}", exc_info=True)
+        print(f"[ERROR] ADPCM decompression failed: {str(e)}")
         return False
 
 @app.route("/")
@@ -263,271 +147,188 @@ def simulator_config():
 @app.route("/upload", methods=["POST"])
 @require_device_auth
 def upload_audio():
-    """
-    Main audio upload endpoint for ESP32 devices.
-    Handles ADPCM audio, performs STT, generates GPT response, and returns TTS audio.
-    """
-    # Start timing measurements
-    start_time = time.time()
-    timing_log = {"start": start_time}
+    try:
+        # Start timing measurements
+        start_time = time.time()
+        timing_log = {"start": start_time}
 
-    # 1. Receive audio
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    input_path = os.path.join(TEMP_DIR, f"input_{timestamp}.wav")
-    adpcm_path = os.path.join(TEMP_DIR, f"adpcm_{timestamp}.bin")
+        # 1. Receive audio
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        input_path = os.path.join(TEMP_DIR, f"input_{timestamp}.wav")
+        adpcm_path = os.path.join(TEMP_DIR, f"adpcm_{timestamp}.bin")
 
-    # Get device and user from auth context (backend-managed sessions)
-    toy_id = request.auth_context.get('toy_id')
-    user_id = request.auth_context.get('user_id')
-    child_id = request.headers.get('X-Child-ID')
+        # Get device and user from auth context (backend-managed sessions)
+        toy_id = request.auth_context.get('toy_id')
+        user_id = request.auth_context.get('user_id')
+        child_id = request.headers.get('X-Child-ID')
 
-    logger.info(
-        f"Audio upload started | Toy: {toy_id} | User: {user_id} | "
-        f"Child: {child_id or 'None'} | Timestamp: {timestamp}"
-    )
+        # Fallback: If child_id not provided, use toy's assigned child
+        if not child_id and hasattr(request, 'auth_context'):
+            child_id = request.auth_context.get('toy_data', {}).get('assignedChildId')
+            if child_id:
+                print(f"[INFO] Using toy's assigned child ID: {child_id}")
 
-    # Fallback: If child_id not provided, use toy's assigned child
-    if not child_id and hasattr(request, 'auth_context'):
-        child_id = request.auth_context.get('toy_data', {}).get('assignedChildId')
-        if child_id:
-            logger.info(f"Using toy's assigned child ID: {child_id}")
-
-    # Get or create session (backend-managed)
-    logger.debug(f"Getting or creating session for toy {toy_id}, user {user_id}, child {child_id}")
-    session_data = session_manager.get_or_create_session(
-        toy_id=toy_id,
-        user_id=user_id,
-        child_id=child_id
-    )
-
-    if not session_data:
-        logger.error(f"Failed to create session for toy {toy_id}, user {user_id}")
-        return jsonify({"error": "Session creation failed"}), 500
-
-    session_id = session_data['session_id']
-    conversation_id = session_data['conversation_id']
-    logger.info(
-        f"Session established | SessionID: {session_id} | "
-        f"ConversationID: {conversation_id}"
-    )
-
-    # Store session info in g for logging context
-    g.user_id = user_id
-    g.device_id = toy_id
-
-    if "audio" in request.files:               # multipart
-        # Save the uploaded file temporarily
-        request.files["audio"].save(adpcm_path)
-        audio_data = request.files["audio"].read()
-        request.files["audio"].seek(0)  # Reset file pointer for potential re-read
-        request.files["audio"].save(adpcm_path)
-    else:                                      # raw body
-        audio_data = request.data
-        with open(adpcm_path, "wb") as f:
-            f.write(audio_data)
-
-    # Detect format and handle accordingly
-    content_type = request.content_type or request.headers.get('Content-Type', '')
-
-    if content_type == "audio/adpcm" or request.headers.get('X-Audio-Format') == 'adpcm':
-        # ADPCM format - decompress to WAV
-        logger.info(
-            f"Processing ADPCM audio | Size: {len(audio_data)} bytes | "
-            f"Session: {session_id}"
+        # Get or create session (backend-managed)
+        session_data = session_manager.get_or_create_session(
+            toy_id=toy_id,
+            user_id=user_id,
+            child_id=child_id
         )
 
+        if not session_data:
+            print(f"[ERROR] Failed to create session for toy {toy_id}")
+            return jsonify({"error": "Session creation failed"}), 500
+
+        session_id = session_data['session_id']
+        conversation_id = session_data['conversation_id']
+        print(f"[INFO] Session ID: {session_id}, Conversation ID: {conversation_id}")
+
+        if "audio" in request.files:               # multipart
+            # Save the uploaded file temporarily
+            request.files["audio"].save(adpcm_path)
+            audio_data = request.files["audio"].read()
+            request.files["audio"].seek(0)  # Reset file pointer for potential re-read
+            request.files["audio"].save(adpcm_path)
+        else:                                      # raw body
+            audio_data = request.data
+            with open(adpcm_path, "wb") as f:
+                f.write(audio_data)
+
+        # Detect format and handle accordingly
+        content_type = request.content_type or request.headers.get('Content-Type', '')
+    
+    if content_type == "audio/adpcm" or request.headers.get('X-Audio-Format') == 'adpcm':
+        # ADPCM format - decompress to WAV
+        print(f"[INFO] Processing ADPCM audio ({len(audio_data)} bytes) (Session: {session_id})")
+        
         if not decompress_adpcm_to_wav(audio_data, input_path):
-            logger.error(f"ADPCM decompression failed for session {session_id}")
             return jsonify({"error": "ADPCM decompression failed"}), 500
-
-        logger.info(f"ADPCM decompressed successfully to {input_path}")
-
+            
+        print(f"[INFO] ADPCM decompressed => {input_path}")
+        
     elif content_type == "audio/wav":
         # Already WAV format - save directly
         with open(input_path, "wb") as f:
             f.write(audio_data)
-        logger.info(
-            f"Saved WAV audio directly | Size: {len(audio_data)} bytes | "
-            f"Path: {input_path} | Session: {session_id}"
-        )
-
+        print(f"[INFO] Saved WAV audio => {input_path} (Session: {session_id})")
+        
     else:
         # Assume ADPCM by default for ESP32 compatibility
-        logger.warning(
-            f"No audio format specified, assuming ADPCM | Size: {len(audio_data)} bytes | "
-            f"Session: {session_id}"
-        )
-
+        print(f"[INFO] No format specified, assuming ADPCM ({len(audio_data)} bytes) (Session: {session_id})")
+        
         if not decompress_adpcm_to_wav(audio_data, input_path):
-            logger.error(f"ADPCM decompression failed for session {session_id}")
             return jsonify({"error": "ADPCM decompression failed"}), 500
+            
+        print(f"[INFO] ADPCM decompressed => {input_path}")
 
-        logger.info(f"ADPCM decompressed successfully to {input_path}")
-
-    timing_log["audio_saved"] = time.time()
+        timing_log["audio_saved"] = time.time()
 
     # 2. STT (Server-side Whisper API)
-    stt_start = time.time()
-    logger.info(f"Starting Whisper STT | Session: {session_id} | Input: {input_path}")
-
-    try:
+        stt_start = time.time()
+        print(f"[INFO] Starting server-side STT for session: {session_id}")
         user_text = transcribe_audio(input_path)
-        if not user_text:
-            logger.error(f"STT failed - no transcription returned | Session: {session_id}")
-            return jsonify({"error": "Speech transcription failed"}), 500
-
+    if not user_text:
+        print("[ERROR] Server STT failed - no transcription returned")
+        return jsonify({"error": "Speech transcription failed"}), 500
         timing_log["stt_complete"] = time.time()
         stt_time = timing_log["stt_complete"] - stt_start
-        logger.info(
-            f"STT completed successfully | Duration: {stt_time:.2f}s | "
-            f"Transcription: '{user_text}' | Session: {session_id}"
-        )
-    except Exception as e:
-        logger.error(f"STT exception: {str(e)} | Session: {session_id}", exc_info=True)
-        return jsonify({"error": "Speech transcription failed"}), 500
+        print(f"[TRANSCRIPT] '{user_text}' (took {stt_time:.2f}s)")
 
     # 3. GPT with memory context (includes Firestore batch saving - 3 writes instead of 6)
-    gpt_start = time.time()
-    logger.info(
-        f"Starting GPT generation | Session: {session_id} | "
-        f"UserText: '{user_text[:100]}{'...' if len(user_text) > 100 else ''}'"
-    )
-
-    try:
+        gpt_start = time.time()
         gpt_reply = get_gpt_reply(
-            user_text=user_text,
-            session_id=session_id,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            child_id=child_id
+        user_text=user_text,
+        session_id=session_id,
+        user_id=user_id,
+        conversation_id=conversation_id
         )
-
         timing_log["gpt_complete"] = time.time()
-        gpt_time = timing_log["gpt_complete"] - gpt_start
-        logger.info(
-            f"GPT completed successfully | Duration: {gpt_time:.2f}s | "
-            f"Reply: '{gpt_reply[:100]}{'...' if len(gpt_reply) > 100 else ''}' | "
-            f"Session: {session_id}"
-        )
-    except Exception as e:
-        logger.error(f"GPT generation exception: {str(e)} | Session: {session_id}", exc_info=True)
-        return jsonify({"error": "GPT processing failed"}), 500
+        print("[GPT]", gpt_reply)
 
     # 4. TTS
-    tts_start = time.time()
-    output_path = os.path.join(TEMP_DIR, f"reply_{timestamp}.wav")
-    logger.info(
-        f"Starting TTS generation | Output: {output_path} | "
-        f"Text length: {len(gpt_reply)} chars | Session: {session_id}"
-    )
-
-    try:
+        tts_start = time.time()
+        output_path = os.path.join(TEMP_DIR, f"reply_{timestamp}.wav")
+        print(f"[DEBUG] Expected output path: {os.path.abspath(output_path)}")
         synthesize_speech(gpt_reply, output_path)
-    except Exception as e:
-        logger.error(f"TTS synthesis exception: {str(e)} | Session: {session_id}", exc_info=True)
-        return jsonify({"error": "Speech synthesis failed"}), 500
 
     # 5. Wait for TTS output file to be created (with retry)
-    max_retries = 60
-    retry_delay = 1.0
-    logger.debug(f"Waiting for TTS output file: {output_path}")
-
-    for attempt in range(max_retries):
+        max_retries = 60
+        retry_delay = 1.0
+        for attempt in range(max_retries):
         if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            logger.info(f"TTS output file ready after {attempt + 1} attempts")
             break
-
-        if attempt % 10 == 0:  # Log every 10 attempts to reduce noise
-            logger.debug(
-                f"TTS file not ready yet | Attempt {attempt + 1}/{max_retries} | "
-                f"Waiting {retry_delay}s..."
-            )
+        print(f"[DEBUG] Attempt {attempt + 1}: File not ready, waiting {retry_delay}s...")
         time.sleep(retry_delay)
     else:
-        logger.error(
-            f"TTS output file not created after {max_retries} attempts | "
-            f"Path: {os.path.abspath(output_path)} | "
-            f"CWD: {os.getcwd()} | "
-            f"Session: {session_id}"
-        )
-        if os.path.exists('../temp'):
-            temp_files = os.listdir('../temp')
-            logger.error(f"Files in temp directory: {temp_files}")
+        print(f"[DEBUG] File still not found after {max_retries} attempts at: {os.path.abspath(output_path)}")
+        print(f"[DEBUG] Current working directory: {os.getcwd()}")
+        print(f"[DEBUG] Files in temp directory: {os.listdir('../temp') if os.path.exists('../temp') else 'temp dir not found'}")
         return jsonify({"error": "Speech synthesis failed"}), 500
 
     # 6. Send back WAV with proper headers
-    timing_log["tts_complete"] = time.time()
-    file_size = os.path.getsize(output_path)
-
+        timing_log["tts_complete"] = time.time()
+        file_size = os.path.getsize(output_path)
+    
     # Calculate timing breakdown
-    total_time = timing_log["tts_complete"] - timing_log["start"]
-    stt_time = timing_log["stt_complete"] - timing_log["audio_saved"]
-    gpt_time = timing_log["gpt_complete"] - timing_log["stt_complete"]
-    tts_time = timing_log["tts_complete"] - timing_log["gpt_complete"]
-
-    # Log comprehensive timing analysis
-    logger.info(
-        f"\n"
-        f"=== RESPONSE TIME ANALYSIS ===\n"
-        f"Session: {session_id} | Conversation: {conversation_id}\n"
-        f"Total Response Time: {total_time:.2f}s\n"
-        f"├─ STT Processing: {stt_time:.2f}s ({stt_time/total_time*100:.1f}%)\n"
-        f"├─ GPT Generation: {gpt_time:.2f}s ({gpt_time/total_time*100:.1f}%)\n"
-        f"└─ TTS Generation: {tts_time:.2f}s ({tts_time/total_time*100:.1f}%)\n"
-        f"Audio file size: {file_size} bytes\n"
-        f"=== END TIMING ANALYSIS ==="
-    )
-
+        total_time = timing_log["tts_complete"] - timing_log["start"]
+        stt_time = timing_log["stt_complete"] - timing_log["audio_saved"]
+        gpt_time = timing_log["gpt_complete"] - timing_log["stt_complete"]
+        tts_time = timing_log["tts_complete"] - timing_log["gpt_complete"]
+    
+        print(f"\n=== RESPONSE TIME ANALYSIS ===")
+        print(f"Total Response Time: {total_time:.2f}s")
+        print(f"├─ STT Processing: {stt_time:.2f}s ({stt_time/total_time*100:.1f}%)")
+        print(f"├─ GPT Generation: {gpt_time:.2f}s ({gpt_time/total_time*100:.1f}%)")
+        print(f"└─ TTS Generation: {tts_time:.2f}s ({tts_time/total_time*100:.1f}%)")
+        print(f"Audio file size: {file_size} bytes")
+        print(f"=== END TIMING ANALYSIS ===\n")
+    
     # Update session activity
-    try:
         session_manager.update_session_activity(session_id, user_id)
-        logger.debug(f"Session activity updated | Session: {session_id}")
-    except Exception as e:
-        logger.warning(f"Failed to update session activity: {str(e)}", exc_info=True)
 
-    response = send_file(output_path, mimetype="audio/wav", as_attachment=False)
-    response.headers["Content-Length"] = str(file_size)
-    response.headers["Connection"] = "keep-alive"
-    response.headers["X-Response-Time"] = f"{total_time:.2f}"
-    response.headers["X-STT-Time"] = f"{stt_time:.2f}"
-    response.headers["X-GPT-Time"] = f"{gpt_time:.2f}"
-    response.headers["X-TTS-Time"] = f"{tts_time:.2f}"
-    return response
+        response = send_file(output_path, mimetype="audio/wav", as_attachment=False)
+        response.headers["Content-Length"] = str(file_size)
+        response.headers["Connection"] = "keep-alive"
+        response.headers["X-Response-Time"] = f"{total_time:.2f}"
+        response.headers["X-STT-Time"] = f"{stt_time:.2f}"
+        response.headers["X-GPT-Time"] = f"{gpt_time:.2f}"
+        response.headers["X-TTS-Time"] = f"{tts_time:.2f}"
+        return response
+
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Upload route failed: {e}")
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/wakeup", methods=["GET"])
 def wakeup():
-    """Serve the most recent wakeup audio file from the audio directory"""
-    logger.info("Wakeup audio requested")
-
     try:
         # Look for WAV files in the audio directory
         wav_files = [f for f in os.listdir(AUDIO_DIR) if f.endswith('.wav')]
-
+        
         if not wav_files:
-            logger.warning("No wakeup audio files available in audio directory")
             return jsonify({"error": "No audio files available"}), 404
-
+        
         # Return the most recent WAV file
         wav_files.sort(key=lambda x: os.path.getmtime(os.path.join(AUDIO_DIR, x)), reverse=True)
         latest_file = wav_files[0]
         file_path = os.path.join(AUDIO_DIR, latest_file)
-
+        
         # Verify file exists and has content
         if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-            logger.error(f"Wakeup audio file not found or empty: {file_path}")
             return jsonify({"error": "Audio file not found or empty"}), 404
-
-        file_size = os.path.getsize(file_path)
-        logger.info(f"Serving wakeup audio: {latest_file} ({file_size} bytes)")
-
+        
+        print(f"[INFO] Serving wakeup audio: {latest_file}")
+        
         # Send the WAV file with proper headers
         response = send_file(file_path, mimetype="audio/wav", as_attachment=False)
-        response.headers["Content-Length"] = str(file_size)
+        response.headers["Content-Length"] = str(os.path.getsize(file_path))
         response.headers["Connection"] = "keep-alive"
         return response
-
+        
     except Exception as e:
-        logger.error(f"Wakeup route error: {str(e)}", exc_info=True)
+        print(f"[ERROR] Wakeup route error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
 @app.route("/audios")
@@ -535,14 +336,11 @@ def get_audios():
     """
     Returns a JSON list of available filler audio files for ESP32 discovery
     """
-    logger.info("Filler audio discovery requested")
-
     try:
         filler_dir = os.path.join(AUDIO_DIR, "filler_audios")
 
         # Check if filler_audios directory exists
         if not os.path.exists(filler_dir):
-            logger.warning(f"Filler audio directory does not exist: {filler_dir}")
             return jsonify({"audio_urls": []})
 
         # List all audio files in filler_audios subdirectory
@@ -552,14 +350,11 @@ def get_audios():
         # Build flattened URLs for the client
         urls = [f"/audio/{fname}" for fname in audio_files]
 
-        logger.info(
-            f"Filler audio discovery completed | Found {len(audio_files)} files | "
-            f"Directory: {filler_dir}"
-        )
+        print(f"[INFO] Filler audio discovery - found {len(audio_files)} files in filler_audios/")
         return jsonify({"audio_urls": urls})
 
     except Exception as e:
-        logger.error(f"Filler audio discovery failed: {str(e)}", exc_info=True)
+        print(f"[ERROR] Filler audio discovery failed: {str(e)}")
         return jsonify({"error": "Failed to list filler audio files"}), 500
 
 @app.route("/audio/<filename>")
@@ -641,8 +436,7 @@ def upload_text():
         user_text=user_text,
         session_id=session_id,
         user_id=user_id,
-        conversation_id=conversation_id,
-        child_id=child_id
+        conversation_id=conversation_id
     )
     timing_log["gpt_complete"] = time.time()
     if not gpt_reply:
@@ -1491,412 +1285,6 @@ def simulator_list_toys(user_id):
     except Exception as e:
         print(f"[ERROR] Failed to list toys: {e}")
         return jsonify({"error": str(e)}), 500
-
-
-# ==================== KNOWLEDGE GRAPH API ENDPOINTS ====================
-
-@app.route("/api/children/<child_id>/knowledge/summary", methods=["GET"])
-@require_device_auth
-def get_child_knowledge_summary(child_id):
-    """
-    Get aggregate knowledge graph summary for parent dashboard
-
-    Returns: {success, summary: {stats, topTopics, topSkills, topInterests, learningProfile}}
-    """
-    try:
-        user_id = get_current_user_id()
-        from knowledge_graph_service import knowledge_graph_service
-
-        summary = knowledge_graph_service.get_summary(user_id, child_id)
-
-        if not summary:
-            return jsonify({"success": True, "summary": None}), 200
-
-        return jsonify({"success": True, "summary": summary}), 200
-
-    except Exception as e:
-        logger.error(f"Failed to get knowledge summary: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/api/children/<child_id>/knowledge/entities", methods=["GET"])
-@require_device_auth
-def get_child_entities(child_id):
-    """
-    Query entities with filters
-
-    Query params:
-    - type: Filter by entity type (topic, skill, interest, concept, personality_trait)
-    - limit: Max results (default: 50)
-    - orderBy: Sort field (mentionCount, lastMentionedAt, strength)
-
-    Returns: {success, entities: [...]}
-    """
-    try:
-        user_id = get_current_user_id()
-        filters = {
-            "type": request.args.get("type"),
-            "limit": int(request.args.get("limit", 50)),
-            "orderBy": request.args.get("orderBy", "strength")
-        }
-
-        from knowledge_graph_service import knowledge_graph_service
-        entities = knowledge_graph_service.get_entities(user_id, child_id, filters)
-
-        return jsonify({"success": True, "entities": entities, "count": len(entities)}), 200
-
-    except Exception as e:
-        logger.error(f"Failed to get entities: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/api/children/<child_id>/knowledge/observations", methods=["GET"])
-@require_device_auth
-def get_child_observations(child_id):
-    """
-    Get time-series observations for learning timeline
-
-    Query params:
-    - limit: Max results (default: 20)
-
-    Returns: {success, observations: [...]}
-    """
-    try:
-        user_id = get_current_user_id()
-        limit = int(request.args.get("limit", 20))
-
-        # Query observations collection
-        observations_ref = firestore_service.db.collection("users").document(user_id)\
-            .collection("children").document(child_id)\
-            .collection("observations")
-
-        observations_query = observations_ref.order_by("timestamp", direction=firestore.Query.DESCENDING)\
-            .limit(limit)
-
-        observations = []
-        for doc in observations_query.stream():
-            obs_data = doc.to_dict()
-            observations.append(obs_data)
-
-        return jsonify({"success": True, "observations": observations, "count": len(observations)}), 200
-
-    except Exception as e:
-        logger.error(f"Failed to get observations: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/api/children/<child_id>/knowledge/entities/<entity_id>", methods=["GET"])
-@require_device_auth
-def get_entity_details(child_id, entity_id):
-    """
-    Get full details of a specific entity including related entities
-
-    Returns: {success, entity: {...}}
-    """
-    try:
-        user_id = get_current_user_id()
-
-        # Get entity document
-        entity_ref = firestore_service.db.collection("users").document(user_id)\
-            .collection("children").document(child_id)\
-            .collection("entities").document(entity_id)
-
-        entity_doc = entity_ref.get()
-
-        if not entity_doc.exists:
-            return jsonify({"success": False, "error": "Entity not found"}), 404
-
-        entity_data = entity_doc.to_dict()
-
-        return jsonify({"success": True, "entity": entity_data}), 200
-
-    except Exception as e:
-        logger.error(f"Failed to get entity details: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-# ================================
-# KNOWLEDGE GRAPH VISUALIZATION ENDPOINTS
-# ================================
-
-@app.route("/api/children/<child_id>/knowledge/graph", methods=["GET"])
-@require_device_auth
-def get_knowledge_graph_visualization(child_id):
-    """
-    Get knowledge graph in D3.js force-directed format
-
-    Query params:
-    - timeRange: last_week | last_month | all_time (default: all_time)
-    - entityTypes: comma-separated types (default: all)
-    - edgeTypes: comma-separated edge types (default: all)
-    - minWeight: 0.0-1.0 (default: 0.5)
-    - limit: max nodes (default: 50)
-
-    Returns:
-        JSON with graph data (nodes and links in D3.js format)
-    """
-    try:
-        from graph_query_service import GraphQueryService
-        from knowledge_graph_service import knowledge_graph_service
-        from datetime import datetime, timedelta
-
-        user_id = g.user_id
-
-        # Parse query parameters
-        time_range = request.args.get('timeRange', 'all_time')
-        entity_types_param = request.args.get('entityTypes', '')
-        edge_types_param = request.args.get('edgeTypes', '')
-        min_weight = float(request.args.get('minWeight', 0.5))
-        limit = int(request.args.get('limit', 50))
-
-        entity_types = [t.strip() for t in entity_types_param.split(',') if t.strip()] if entity_types_param else None
-        edge_types = [t.strip() for t in edge_types_param.split(',') if t.strip()] if edge_types_param else None
-
-        # Get entities with filters
-        query_filter = {"limit": limit}
-        if entity_types and len(entity_types) == 1:
-            query_filter["type"] = entity_types[0]
-
-        entities_result = knowledge_graph_service.get_entities(user_id, child_id, query_filter)
-        entities = entities_result.get('entities', [])
-
-        # Apply time filter if needed
-        if time_range != 'all_time':
-            cutoff_date = datetime.utcnow()
-            if time_range == 'last_week':
-                cutoff_date -= timedelta(days=7)
-            elif time_range == 'last_month':
-                cutoff_date -= timedelta(days=30)
-
-            entities = [e for e in entities
-                       if e.get('lastMentionedAt') and e['lastMentionedAt'] > cutoff_date]
-
-        # Apply entity type filter (if multiple types)
-        if entity_types:
-            entities = [e for e in entities if e.get('type') in entity_types]
-
-        entity_ids = {e['id'] for e in entities}
-
-        # Get edges between these entities
-        edges_ref = db.collection("users").document(user_id)\
-            .collection("children").document(child_id)\
-            .collection("edges")
-
-        all_edges = []
-        query = edges_ref.where("weight", ">=", min_weight)
-
-        for edge_doc in query.stream():
-            edge = edge_doc.to_dict()
-
-            # Check if both entities are in our set
-            if edge['sourceEntityId'] in entity_ids and edge['targetEntityId'] in entity_ids:
-                # Apply edge type filter
-                if not edge_types or edge['edgeType'] in edge_types:
-                    all_edges.append(edge)
-
-        # Convert to D3 format
-        nodes = []
-        for idx, entity in enumerate(entities):
-            nodes.append({
-                'id': entity['id'],
-                'name': entity['name'],
-                'type': entity['type'],
-                'strength': entity.get('strength', 0),
-                'mentionCount': entity.get('mentionCount', 0),
-                'group': _get_node_group(entity['type']),  # For color coding
-                'centrality': entity.get('centrality', 0),
-                'cluster': entity.get('clusterId')
-            })
-
-        links = []
-        for edge in all_edges:
-            links.append({
-                'source': edge['sourceEntityId'],
-                'target': edge['targetEntityId'],
-                'type': edge['edgeType'],
-                'weight': edge['weight'],
-                'value': edge['weight'] * 10  # D3 link strength
-            })
-
-        return jsonify({
-            'success': True,
-            'graph': {
-                'nodes': nodes,
-                'links': links,
-                'stats': {
-                    'nodeCount': len(nodes),
-                    'linkCount': len(links),
-                    'filters': {
-                        'timeRange': time_range,
-                        'entityTypes': entity_types,
-                        'edgeTypes': edge_types,
-                        'minWeight': min_weight
-                    }
-                }
-            }
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Failed to get graph visualization: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/api/children/<child_id>/knowledge/graph/subgraph", methods=["POST"])
-@require_device_auth
-def get_knowledge_subgraph(child_id):
-    """
-    Get subgraph centered on specific entities
-
-    Body:
-    {
-      "entityIds": ["topic_dinosaurs", "interest_space"],
-      "depth": 2,
-      "maxNodes": 20
-    }
-
-    Returns:
-        JSON with subgraph in D3.js format
-    """
-    try:
-        from graph_query_service import GraphQueryService
-
-        user_id = g.user_id
-        data = request.json
-
-        entity_ids = data.get('entityIds', [])
-        depth = data.get('depth', 2)
-        max_nodes = data.get('maxNodes', 20)
-
-        if not entity_ids:
-            return jsonify({"success": False, "error": "entityIds required"}), 400
-
-        graph_service = GraphQueryService(db)
-        subgraph = graph_service.extract_context_subgraph(
-            user_id, child_id, entity_ids, max_nodes, depth
-        )
-
-        # Convert to D3 format
-        nodes = []
-        for entity in subgraph['entities']:
-            nodes.append({
-                'id': entity['id'],
-                'name': entity['name'],
-                'type': entity['type'],
-                'strength': entity.get('strength', 0),
-                'group': _get_node_group(entity['type']),
-                'isSeed': entity.get('isSeed', False)
-            })
-
-        links = []
-        for edge in subgraph['edges']:
-            links.append({
-                'source': edge['sourceEntityId'],
-                'target': edge['targetEntityId'],
-                'type': edge['edgeType'],
-                'weight': edge['weight'],
-                'value': edge['weight'] * 10
-            })
-
-        return jsonify({
-            'success': True,
-            'graph': {
-                'nodes': nodes,
-                'links': links,
-                'stats': {
-                    'nodeCount': len(nodes),
-                    'linkCount': len(links)
-                }
-            }
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Failed to get subgraph: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/api/children/<child_id>/knowledge/graph/clusters", methods=["GET"])
-@require_device_auth
-def get_knowledge_clusters(child_id):
-    """
-    Get interest clusters with visualization data
-
-    Returns:
-        JSON with cluster list, each containing entities and graph data
-    """
-    try:
-        from graph_query_service import GraphQueryService
-
-        user_id = g.user_id
-        graph_service = GraphQueryService(db)
-
-        # Find clusters
-        clusters = graph_service.find_interest_clusters(user_id, child_id, min_cluster_size=2)
-
-        # Build D3 graph for each cluster
-        result = []
-        for cluster in clusters:
-            cluster_entity_ids = [e['id'] for e in cluster['entities']]
-
-            # Get edges within cluster
-            edges_ref = db.collection("users").document(user_id)\
-                .collection("children").document(child_id)\
-                .collection("edges")
-
-            cluster_edges = []
-            for edge_doc in edges_ref.where("edgeType", "==", "temporal_cooccurrence").stream():
-                edge = edge_doc.to_dict()
-                if (edge['sourceEntityId'] in cluster_entity_ids and
-                    edge['targetEntityId'] in cluster_entity_ids):
-                    cluster_edges.append(edge)
-
-            # Convert to D3 format
-            nodes = []
-            for entity in cluster['entities']:
-                nodes.append({
-                    'id': entity['id'],
-                    'name': entity['name'],
-                    'type': entity['type'],
-                    'strength': entity.get('strength', 0),
-                    'group': _get_node_group(entity['type'])
-                })
-
-            links = []
-            for edge in cluster_edges:
-                links.append({
-                    'source': edge['sourceEntityId'],
-                    'target': edge['targetEntityId'],
-                    'weight': edge['weight'],
-                    'value': edge['weight'] * 10
-                })
-
-            result.append({
-                'clusterId': cluster['clusterId'],
-                'label': cluster['label'],
-                'size': cluster['size'],
-                'entities': [{'id': e['id'], 'name': e['name'], 'type': e['type']} for e in cluster['entities']],
-                'graph': {
-                    'nodes': nodes,
-                    'links': links
-                }
-            })
-
-        return jsonify({'success': True, 'clusters': result}), 200
-
-    except Exception as e:
-        logger.error(f"Failed to get clusters: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-def _get_node_group(entity_type):
-    """Map entity type to group number for D3 color coding"""
-    type_map = {
-        'topic': 1,
-        'skill': 2,
-        'interest': 3,
-        'concept': 4,
-        'personality_trait': 5
-    }
-    return type_map.get(entity_type, 0)
 
 
 if __name__ == "__main__":

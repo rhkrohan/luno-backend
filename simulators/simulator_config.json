@@ -4,7 +4,7 @@
   "toy_id": "test_toy_1763434576",
   "device_id": "test_toy_1763434576",
   "email": "test@lunotoys.com",
-  "backend_url": "http://localhost:5005",
+  "backend_url": "http://3.91.215.115",
   "auto_play_response": true,
   "save_conversations": true
 }

@@ -21,22 +21,22 @@ class SessionManager:
 
         print(f"[INFO] SessionManager initialized with {self.INACTIVITY_TIMEOUT_SECONDS}s inactivity timeout")
 
-    def generate_session_id(self, device_id, user_id):
+    def generate_session_id(self, toy_id, user_id):
         """
         Generate unique session ID
 
         Args:
-            device_id: Device/toy ID
+            toy_id: Device/toy ID
             user_id: User ID
 
         Returns:
-            session_id: Format {device_id}_{user_id}_{timestamp_ms}
+            session_id: Format {toy_id}_{user_id}_{timestamp_ms}
         """
         timestamp_ms = int(time.time() * 1000)
-        session_id = f"{device_id}_{user_id}_{timestamp_ms}"
+        session_id = f"{toy_id}_{user_id}_{timestamp_ms}"
         return session_id
 
-    def get_or_create_session(self, device_id, user_id, child_id=None, toy_id=None):
+    def get_or_create_session(self, toy_id, user_id, child_id=None):
         """
         Get existing active session or create new one
 
@@ -48,10 +48,9 @@ class SessionManager:
         5. Create new session if needed
 
         Args:
-            device_id: Device/toy ID
+            toy_id: Device/toy ID
             user_id: User ID
             child_id: Optional child ID
-            toy_id: Optional toy ID
 
         Returns:
             dict: {
@@ -64,11 +63,11 @@ class SessionManager:
             }
         """
         # Step 1: Check in-memory cache (thread-safe)
-        # Look for any active session for this device-user pair in memory
+        # Look for any active session for this toy-user pair in memory
         with self._lock:
             cached_session_id = None
             for sid, data in self.ACTIVE_CONVERSATIONS.items():
-                if data.get('device_id') == device_id and data.get('user_id') == user_id:
+                if data.get('toy_id') == toy_id and data.get('user_id') == user_id:
                     cached_session_id = sid
                     break
 
@@ -87,7 +86,8 @@ class SessionManager:
                 return cached_session
 
         # Step 2: Query Firestore for active conversation (replaces session)
-        firestore_session = self.fs.get_active_conversation_for_toy(user_id, device_id)
+        # One active conversation per toy at a time
+        firestore_session = self.fs.get_active_conversation_for_toy(user_id, toy_id)
 
         if firestore_session:
             conversation_id = firestore_session.get('id')
@@ -129,7 +129,7 @@ class SessionManager:
                             return self._load_session_into_memory(firestore_session)
 
         # Step 4: No valid session exists, create new one
-        return self._create_new_session(device_id, user_id, child_id, toy_id)
+        return self._create_new_session(toy_id, user_id, child_id)
 
     def _load_session_into_memory(self, firestore_session):
         """
@@ -165,21 +165,33 @@ class SessionManager:
         self.ACTIVE_CONVERSATIONS[conversation_id] = session_data
         return session_data
 
-    def _create_new_session(self, device_id, user_id, child_id=None, toy_id=None):
+    def _create_new_session(self, toy_id, user_id, child_id=None):
         """
         Create new session (now using unified conversation schema)
 
         Args:
-            device_id: Device/toy ID (same as toy_id)
+            toy_id: Device/toy ID
             user_id: User ID
             child_id: Optional child ID
-            toy_id: Optional toy ID
 
         Returns:
             dict: New session data
         """
-        # toyId and deviceId are the same - use toyId
-        toy_id = toy_id or device_id
+
+        # BUGFIX: Before creating new conversation, close ALL active conversations for this toy
+        # This prevents duplicate active conversations (one conversation per toy at a time)
+        self._close_all_active_conversations_for_toy(user_id, toy_id)
+
+        # BUGFIX: Sleep briefly to ensure Firestore consistency across workers
+        # Multiple gunicorn workers can race to create sessions
+        time.sleep(0.2)
+
+        # BUGFIX: Re-check if another worker created a session while we were closing old ones
+        firestore_session = self.fs.get_active_conversation_for_toy(user_id, toy_id)
+        if firestore_session:
+            print(f"[INFO] Another worker created session, using it: {firestore_session.get('id')}")
+            firestore_session['userId'] = user_id
+            return self._load_session_into_memory(firestore_session)
 
         # Create conversation in Firestore (unified schema - replaces both session + conversation)
         conversation_id = self.fs.create_conversation(
@@ -305,6 +317,41 @@ class SessionManager:
 
         return False
 
+    def _close_all_active_conversations_for_toy(self, user_id, toy_id):
+        """
+        Close ALL active conversations for a specific toy (BUGFIX for duplicate conversations)
+
+        This ensures that only ONE conversation can be active per toy at any time.
+        Called before creating a new conversation.
+
+        Args:
+            user_id: User ID
+            toy_id: Toy/Device ID
+        """
+        if not self.fs.is_available():
+            return
+
+        try:
+            # Query ALL active conversations for this toy (not just one)
+            conversations_ref = self.fs.db.collection("users").document(user_id)\
+                .collection("conversations")\
+                .where("toyId", "==", toy_id)\
+                .where("status", "==", "active")\
+                .stream()
+
+            closed_count = 0
+            for conv_doc in conversations_ref:
+                conversation_id = conv_doc.id
+                print(f"[INFO] Closing active conversation for toy {toy_id} before creating new one: {conversation_id}")
+                self.end_session(conversation_id, user_id, reason="new_session_requested")
+                closed_count += 1
+
+            if closed_count > 0:
+                print(f"[INFO] Closed {closed_count} active conversation(s) for toy {toy_id}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to close active conversations: {e}")
+
     def cleanup_expired_sessions(self):
         """
         Background task to cleanup expired sessions
@@ -378,12 +425,12 @@ class SessionManager:
         except Exception as e:
             print(f"[ERROR] Orphan cleanup failed: {e}")
 
-    def get_active_session_id(self, device_id, user_id):
+    def get_active_session_id(self, toy_id, user_id):
         """
-        Get active conversation ID for device-user pair (replaces session lookup)
+        Get active conversation ID for toy-user pair (replaces session lookup)
 
         Args:
-            device_id: Device ID (same as toy_id)
+            toy_id: Toy ID
             user_id: User ID
 
         Returns:
@@ -391,11 +438,11 @@ class SessionManager:
         """
         # Check in-memory first
         for conversation_id, data in self.ACTIVE_CONVERSATIONS.items():
-            if data.get('toy_id') == device_id and data.get('user_id') == user_id:
+            if data.get('toy_id') == toy_id and data.get('user_id') == user_id:
                 return conversation_id
 
         # Check Firestore (unified schema)
-        conversation = self.fs.get_active_conversation_for_toy(user_id, device_id)
+        conversation = self.fs.get_active_conversation_for_toy(user_id, toy_id)
         if conversation:
             return conversation.get('id')
 

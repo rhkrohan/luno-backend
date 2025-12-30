@@ -58,7 +58,6 @@ class ESP32Simulator:
                 "user_id": "test_user_123",
                 "child_id": "test_child_456",
                 "toy_id": "test_toy_789",
-                "device_id": "test_toy_789",
                 "email": "test@lunotoys.com",
                 "backend_url": BACKEND_URL,
                 "auto_play_response": True,
@@ -89,7 +88,6 @@ class ESP32Simulator:
         print(f"{Colors.CYAN}Email:{Colors.END} {self.config.get('email', 'N/A')}")
         print(f"{Colors.CYAN}Child ID:{Colors.END} {self.config['child_id']}")
         print(f"{Colors.CYAN}Toy ID:{Colors.END} {self.config['toy_id']}")
-        print(f"{Colors.CYAN}Device ID:{Colors.END} {self.config.get('device_id', self.config['toy_id'])}")
         print(f"{Colors.CYAN}Backend:{Colors.END} {self.config['backend_url']}")
         print(f"{Colors.CYAN}Status:{Colors.END} {'🟢 Active' if self.conversation_active else '🔴 Idle'}")
         print(f"{Colors.CYAN}Messages:{Colors.END} {self.message_count}\n")
@@ -190,8 +188,7 @@ class ESP32Simulator:
             "X-Session-ID": self.session_id,
             "X-User-ID": self.config['user_id'],
             "X-Child-ID": self.config['child_id'],
-            "X-Toy-ID": self.config['toy_id'],
-            "X-Device-ID": self.config.get('device_id', self.config['toy_id']),
+            "X-Device-ID": self.config['toy_id'],
             "X-Email": self.config.get('email', ''),
         }
 
@@ -260,8 +257,7 @@ class ESP32Simulator:
             "X-Session-ID": self.session_id,
             "X-User-ID": self.config['user_id'],
             "X-Child-ID": self.config['child_id'],
-            "X-Toy-ID": self.config['toy_id'],
-            "X-Device-ID": self.config.get('device_id', self.config['toy_id']),
+            "X-Device-ID": self.config['toy_id'],
             "X-Email": self.config.get('email', ''),
         }
 
@@ -381,10 +377,9 @@ class ESP32Simulator:
         print(f"  2. Change Email (current: {self.config.get('email', 'NOT SET')})")
         print(f"  3. Change Child ID (current: {self.config['child_id']})")
         print(f"  4. Change Toy ID (current: {self.config['toy_id']})")
-        print(f"  5. Change Device ID (current: {self.config.get('device_id', self.config['toy_id'])})")
-        print(f"  6. Change Backend URL (current: {self.config['backend_url']})")
-        print(f"  7. Toggle auto-play (current: {self.config.get('auto_play_response', True)})")
-        print(f"  8. Back to main menu")
+        print(f"  5. Change Backend URL (current: {self.config['backend_url']})")
+        print(f"  6. Toggle auto-play (current: {self.config.get('auto_play_response', True)})")
+        print(f"  7. Back to main menu")
 
         choice = input(f"\n{Colors.CYAN}Select option: {Colors.END}").strip()
 
@@ -409,16 +404,11 @@ class ESP32Simulator:
                 self.config['toy_id'] = new_value
                 self.save_config(self.config)
         elif choice == "5":
-            new_value = input(f"{Colors.CYAN}Enter new Device ID: {Colors.END}").strip()
-            if new_value:
-                self.config['device_id'] = new_value
-                self.save_config(self.config)
-        elif choice == "6":
             new_value = input(f"{Colors.CYAN}Enter new Backend URL: {Colors.END}").strip()
             if new_value:
                 self.config['backend_url'] = new_value
                 self.save_config(self.config)
-        elif choice == "7":
+        elif choice == "6":
             self.config['auto_play_response'] = not self.config.get('auto_play_response', True)
             self.save_config(self.config)
             print(f"{Colors.GREEN}✓ Auto-play: {self.config['auto_play_response']}{Colors.END}")
@@ -429,7 +419,7 @@ class ESP32Simulator:
         print(f"{Colors.CYAN}{'─'*60}{Colors.END}")
         print(f"  User ID:   {self.config['user_id']}")
         print(f"  Email:     {self.config.get('email', 'NOT SET')}")
-        print(f"  Device ID: {self.config.get('device_id', self.config['toy_id'])}")
+        print(f"  Toy ID:    {self.config['toy_id']}")
         print(f"  Session:   {self.session_id}")
         print(f"{Colors.CYAN}{'─'*60}{Colors.END}\n")
 
@@ -438,7 +428,7 @@ class ESP32Simulator:
         headers = {
             "X-Session-ID": self.session_id,
             "X-User-ID": self.config['user_id'],
-            "X-Device-ID": self.config.get('device_id', self.config['toy_id']),
+            "X-Device-ID": self.config['toy_id'],
             "X-Email": self.config.get('email', ''),
         }
 
@@ -452,7 +442,7 @@ class ESP32Simulator:
                 print(f"{Colors.GREEN}{'='*60}{Colors.END}")
                 print(f"  {Colors.BOLD}User ID:{Colors.END} {data.get('user_id')}")
                 print(f"  {Colors.BOLD}Email:{Colors.END} {data.get('email')}")
-                print(f"  {Colors.BOLD}Device ID:{Colors.END} {data.get('device_id')}")
+                print(f"  {Colors.BOLD}Toy ID:{Colors.END} {data.get('toy_id')}")
                 print(f"  {Colors.BOLD}Device Name:{Colors.END} {data.get('device_name', 'N/A')}")
                 print(f"  {Colors.BOLD}Assigned Child:{Colors.END} {data.get('assigned_child', 'N/A')}")
                 print(f"  {Colors.BOLD}Device Status:{Colors.END} {data.get('device_status', 'N/A')}")

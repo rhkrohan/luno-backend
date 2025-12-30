@@ -330,7 +330,7 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">Backend URL</label>
-                        <input type="text" class="form-input" id="backendUrl" value="http://localhost:5005">
+                        <input type="text" class="form-input" id="backendUrl" value="http://3.91.215.115">
                     </div>
                 </div>
                 <button class="btn btn-primary" onclick="testAuthentication()">🔐 Test Authentication</button>
@@ -470,7 +470,7 @@
                     document.getElementById('childId').value = config.child_id || 'test_child_456';
                     document.getElementById('toyId').value = config.toy_id || 'test_toy_789';
                     document.getElementById('deviceId').value = config.device_id || config.toy_id || 'test_toy_789';
-                    document.getElementById('backendUrl').value = config.backend_url || 'http://localhost:5005';
+                    document.getElementById('backendUrl').value = config.backend_url || 'http://3.91.215.115';
 
                     log(`✓ Configuration loaded: User ${config.user_id}`, 'success');
                 } else {

@@ -6,8 +6,11 @@ Handles all Firestore operations for conversations, messages, and stats
 from datetime import datetime
 from firebase_admin import firestore
 from firebase_config import get_firestore_client
+from logging_config import get_logger
 import re
 import time
+
+logger = get_logger(__name__)
 
 # Safety check keywords for content moderation
 SAFETY_KEYWORDS = {
@@ -41,10 +44,10 @@ class FirestoreService:
 
     def create_conversation(self, user_id, child_id, toy_id=None, conversation_type="conversation"):
         """
-        Create a new conversation in Firestore (UNIFIED SCHEMA)
+        Create a new conversation in Firestore (UNIFIED SCHEMA with ARRAY-BASED MESSAGES)
 
         NEW LOCATION: users/{userId}/conversations/{conversationId}
-        (Replaces both old sessions + children/{childId}/conversations)
+        Messages stored as array field, not subcollection
 
         Args:
             user_id: Parent user ID
@@ -56,23 +59,33 @@ class FirestoreService:
             conversation_id: The ID of the created conversation
         """
         if not self.is_available():
-            print("[WARNING] Firestore not available, skipping conversation creation")
+            logger.warning("Firestore not available, skipping conversation creation")
             return None
 
         try:
+            # Get denormalized names for quick display
+            child_name = self._get_child_name(user_id, child_id)
+            toy_name = self._get_toy_name(user_id, toy_id) if toy_id else None
+
             conversation_data = {
                 # Core Metadata
                 "status": "active",
                 "type": conversation_type,
+                "createdAt": firestore.SERVER_TIMESTAMP,
 
-                # Relationships (normalized - IDs only, NO names)
+                # Relationships - IDs
                 "childId": child_id,
-                "toyId": toy_id or "unknown",
+                "toyId": toy_id or None,
+
+                # Relationships - Denormalized names
+                "childName": child_name,
+                "toyName": toy_name,
 
                 # Timing
                 "startTime": firestore.SERVER_TIMESTAMP,
                 "lastActivityAt": firestore.SERVER_TIMESTAMP,
                 "endTime": None,
+                "duration": 0,  # Legacy field for compatibility
                 "durationMinutes": 0,
 
                 # Content Summary
@@ -87,6 +100,9 @@ class FirestoreService:
                 "flagReason": None,
                 "severity": None,
                 "flagStatus": "unreviewed",
+
+                # Messages Array (COMPACT STRUCTURE)
+                "messages": [],
             }
 
             # Generate custom conversation ID: {child_id}_{toy_id}_{timestamp}
@@ -106,18 +122,17 @@ class FirestoreService:
             if toy_id:
                 self._update_toy_status(user_id, toy_id, status="online")
 
-            print(f"[INFO] Created unified conversation: {conversation_id} (status: active)")
+            logger.info(f"Created conversation with array-based messages: {conversation_id}")
             return conversation_id
 
         except Exception as e:
-            print(f"[ERROR] Failed to create conversation: {e}")
+            logger.error(f"Failed to create conversation for user {user_id} | Error: {str(e)}", exc_info=True)
             return None
 
     def add_message(self, user_id, conversation_id, sender, content):
         """
-        Add a message to a conversation (UNIFIED SCHEMA)
-
-        NEW LOCATION: users/{userId}/conversations/{conversationId}/messages/{messageId}
+        Add a single message to a conversation using ARRAY-BASED storage with cap
+        NOTE: Prefer using add_message_batch() for better performance
 
         Args:
             user_id: Parent user ID
@@ -126,56 +141,86 @@ class FirestoreService:
             content: Message content
 
         Returns:
-            message_id: The ID of the created message
+            bool: Success status
         """
         if not self.is_available():
-            print("[WARNING] Firestore not available, skipping message save")
-            return None
+            logger.warning("Firestore not available, skipping message save")
+            return False
 
         try:
+            # Get conversation ref
+            conv_ref = self.db.collection("users").document(user_id)\
+                .collection("conversations").document(conversation_id)
+
             # Check for safety issues
             safety_result = self._check_message_safety(content)
 
-            message_data = {
+            # Create message object with timestamp
+            # NOTE: Use datetime instead of SERVER_TIMESTAMP for arrays in transactions
+            from datetime import datetime as dt_now
+            timestamp_now = dt_now.utcnow()
+
+            message = {
                 "sender": sender,
                 "content": content,
-                "timestamp": firestore.SERVER_TIMESTAMP,
+                "timestamp": timestamp_now,
                 "flagged": safety_result["flagged"],
                 "flagReason": safety_result.get("flagReason"),
             }
 
-            # NEW LOCATION: messages under conversations (not children/childId/conversations)
-            messages_ref = self.db.collection("users").document(user_id)\
-                .collection("conversations").document(conversation_id)\
-                .collection("messages")
+            # Use transaction for atomic read-modify-write with array cap
+            @firestore.transactional
+            def update_in_transaction(transaction, conv_ref):
+                snapshot = conv_ref.get(transaction=transaction)
 
-            # Count existing messages from this sender
-            sender_messages = messages_ref.where("sender", "==", sender).stream()
-            sender_count = sum(1 for _ in sender_messages) + 1
+                # Check if conversation exists
+                if not snapshot.exists:
+                    raise ValueError(f"Conversation {conversation_id} does not exist for user {user_id}. Please create the conversation first.")
 
-            # Create message ID: child_1, toy_1, child_2, toy_2, etc.
-            message_id = f"{sender}_{sender_count}"
+                snapshot_data = snapshot.to_dict()
+                current_messages = snapshot_data.get('messages', [])
+                message_count = snapshot_data.get('messageCount', 0)
 
-            # Add message with custom ID
-            message_ref = messages_ref.document(message_id)
-            message_ref.set(message_data)
+                # Array cap: Keep last 149 messages, add 1 new = 150 max
+                if len(current_messages) >= 150:
+                    new_messages = current_messages[-149:] + [message]
+                else:
+                    new_messages = current_messages + [message]
 
-            # Update conversation metadata
-            self._update_conversation_after_message(
-                user_id, conversation_id, content, safety_result
-            )
+                # Prepare update data
+                update_data = {
+                    "messages": new_messages,
+                    "messageCount": message_count + 1,
+                    "lastActivityAt": firestore.SERVER_TIMESTAMP
+                }
 
-            print(f"[INFO] Added {sender} message ({message_id}) to conversation {conversation_id}")
-            return message_id
+                # Add flag data if message flagged
+                if safety_result["flagged"]:
+                    update_data.update({
+                        "flagged": True,
+                        "flagType": safety_result.get("flagType"),
+                        "flagReason": safety_result.get("flagReason"),
+                        "severity": safety_result.get("severity")
+                    })
+
+                # Update conversation document
+                transaction.update(conv_ref, update_data)
+
+            # Execute transaction
+            transaction = self.db.transaction()
+            update_in_transaction(transaction, conv_ref)
+
+            logger.info(f"Added {sender} message to conversation {conversation_id}")
+            return True
 
         except Exception as e:
-            print(f"[ERROR] Failed to add message: {e}")
-            return None
+            logger.error(f"Failed to add message to conversation {conversation_id} | Error: {str(e)}", exc_info=True)
+            return False
 
     def add_message_batch(self, user_id, conversation_id, child_message, toy_message):
         """
-        Add both child and toy messages in a single batch operation
-        Reduces writes from 6 to 3 per exchange
+        Add both child and toy messages in a single transaction (ARRAY-BASED VERSION)
+        Messages are stored as an array field in the conversation document with a 150 message cap
 
         Args:
             user_id: Parent user ID
@@ -184,91 +229,100 @@ class FirestoreService:
             toy_message: Toy's response content
 
         Returns:
-            tuple: (child_message_id, toy_message_id)
+            tuple: (child_message_id, toy_message_id) - synthetic IDs for compatibility
         """
         if not self.is_available():
-            print("[WARNING] Firestore not available, skipping batch message save")
+            logger.warning("Firestore not available, skipping batch message save")
             return None, None
 
         try:
-            batch = self.db.batch()
-
             # Get conversation ref
             conv_ref = self.db.collection("users").document(user_id)\
                 .collection("conversations").document(conversation_id)
 
-            messages_ref = conv_ref.collection("messages")
-
-            # Get current message count
-            existing_messages = list(messages_ref.stream())
-            message_count = len(existing_messages)
-
             # Check safety for child message
             child_safety = self._check_message_safety(child_message)
 
-            # Calculate message IDs
-            child_msg_count = sum(1 for msg in existing_messages if msg.to_dict().get("sender") == "child") + 1
-            toy_msg_count = sum(1 for msg in existing_messages if msg.to_dict().get("sender") == "toy") + 1
+            # Create message objects with timestamps
+            # NOTE: Use datetime instead of SERVER_TIMESTAMP for arrays in transactions
+            from datetime import datetime as dt_now
+            timestamp_now = dt_now.utcnow()
 
+            child_msg = {
+                "sender": "child",
+                "content": child_message,
+                "timestamp": timestamp_now,
+                "flagged": child_safety["flagged"],
+                "flagReason": child_safety.get("flagReason")
+            }
+
+            toy_msg = {
+                "sender": "toy",
+                "content": toy_message,
+                "timestamp": timestamp_now,
+                "flagged": False,
+                "flagReason": None
+            }
+
+            # Use transaction for atomic read-modify-write
+            @firestore.transactional
+            def update_in_transaction(transaction, conv_ref):
+                snapshot = conv_ref.get(transaction=transaction)
+                snapshot_data = snapshot.to_dict()
+                current_messages = snapshot_data.get('messages', [])
+                message_count = snapshot_data.get('messageCount', 0)
+
+                # Array cap: Keep last 148 messages, add 2 new = 150 max
+                if len(current_messages) >= 149:
+                    new_messages = current_messages[-(149-1):] + [child_msg, toy_msg]
+                else:
+                    new_messages = current_messages + [child_msg, toy_msg]
+
+                # Build update data
+                update_data = {
+                    "messages": new_messages,
+                    "messageCount": message_count + 2,
+                    "lastActivityAt": firestore.SERVER_TIMESTAMP
+                }
+
+                # Add flag data if message flagged
+                if child_safety["flagged"]:
+                    update_data.update({
+                        "flagged": True,
+                        "flagType": child_safety.get("flagType"),
+                        "flagReason": child_safety.get("flagReason"),
+                        "severity": child_safety.get("severity")
+                    })
+
+                # Store first message preview if this is the first exchange
+                if message_count == 0:
+                    update_data["firstMessagePreview"] = child_message[:50]
+
+                # Update conversation document
+                transaction.update(conv_ref, update_data)
+
+                return message_count
+
+            # Execute transaction
+            transaction = self.db.transaction()
+            message_count = update_in_transaction(transaction, conv_ref)
+
+            # Generate synthetic message IDs for compatibility
+            child_msg_count = (message_count // 2) + 1
+            toy_msg_count = (message_count // 2) + 1
             child_message_id = f"child_{child_msg_count}"
             toy_message_id = f"toy_{toy_msg_count}"
 
-            # 1. Write child message
-            child_msg_ref = messages_ref.document(child_message_id)
-            batch.set(child_msg_ref, {
-                "sender": "child",
-                "content": child_message,
-                "timestamp": firestore.SERVER_TIMESTAMP,
-                "flagged": child_safety["flagged"],
-                "flagReason": child_safety.get("flagReason")
-            })
-
-            # 2. Write toy message
-            toy_msg_ref = messages_ref.document(toy_message_id)
-            batch.set(toy_msg_ref, {
-                "sender": "toy",
-                "content": toy_message,
-                "timestamp": firestore.SERVER_TIMESTAMP,
-                "flagged": False,
-                "flagReason": None
-            })
-
-            # 3. Update conversation (combines 4 old operations into 1)
-            update_data = {
-                "messageCount": firestore.Increment(2),
-                "lastActivityAt": firestore.SERVER_TIMESTAMP
-            }
-
-            # Add flag data if message flagged
-            if child_safety["flagged"]:
-                update_data.update({
-                    "flagged": True,
-                    "flagType": child_safety.get("flagType"),
-                    "flagReason": child_safety.get("flagReason"),
-                    "severity": child_safety.get("severity")
-                })
-
-            # Store first message preview if this is the first exchange
-            if message_count == 0:
-                update_data["firstMessagePreview"] = child_message[:50]
-
-            batch.update(conv_ref, update_data)
-
-            # Commit all 3 writes atomically
-            batch.commit()
-
-            print(f"[INFO] Batch saved messages to conversation {conversation_id} (3 writes)")
+            logger.info(f"Batch saved messages to conversation {conversation_id} array (1 transaction)")
             return child_message_id, toy_message_id
 
         except Exception as e:
-            print(f"[ERROR] Failed to batch save messages: {e}")
+            logger.error(f"Failed to batch save messages to conversation {conversation_id} | Error: {str(e)}", exc_info=True)
             return None, None
 
     def end_conversation(self, user_id, conversation_id, duration_minutes):
         """
-        End a conversation and update stats (UNIFIED SCHEMA)
-
-        NEW LOCATION: users/{userId}/conversations/{conversationId}
+        End a conversation and update stats (ARRAY-BASED SCHEMA)
 
         Args:
             user_id: Parent user ID
@@ -280,11 +334,11 @@ class FirestoreService:
             return
 
         try:
-            # NEW LOCATION: conversations directly under user
+            # Get conversation ref
             conversation_ref = self.db.collection("users").document(user_id)\
                 .collection("conversations").document(conversation_id)
 
-            # Get conversation to find child_id
+            # Get conversation data
             conv_doc = conversation_ref.get()
             if not conv_doc.exists:
                 print(f"[ERROR] Conversation {conversation_id} not found")
@@ -293,17 +347,19 @@ class FirestoreService:
             conv_data = conv_doc.to_dict()
             child_id = conv_data.get("childId")
 
-            # Get messages to count
-            messages_ref = conversation_ref.collection("messages").order_by("timestamp")
-            messages = list(messages_ref.stream())
-            message_count = len(messages)
+            # Get messages from array
+            messages = conv_data.get("messages", [])
 
-            # Update conversation status
+            # Use messageCount from conversation document (already accurate)
+            total_message_count = conv_data.get("messageCount", len(messages))
+
+            # Update conversation status with both duration fields
             conversation_ref.update({
                 "status": "ended",
                 "endTime": firestore.SERVER_TIMESTAMP,
+                "duration": duration_minutes,  # Legacy field
                 "durationMinutes": duration_minutes,
-                "messageCount": message_count,
+                "messageCount": total_message_count,
             })
 
             # Trigger AI title generation asynchronously
@@ -314,10 +370,18 @@ class FirestoreService:
                 daemon=True
             ).start()
 
+            # Trigger knowledge graph extraction asynchronously
+            if total_message_count >= 4:  # Only extract if meaningful conversation
+                threading.Thread(
+                    target=self._extract_knowledge_graph,
+                    args=(user_id, conversation_id, child_id, messages),
+                    daemon=True
+                ).start()
+
             # Update user stats
             self._update_user_stats(user_id, child_id, conversation_id, duration_minutes)
 
-            print(f"[INFO] Ended conversation {conversation_id}, duration: {duration_minutes}m (AI title generating...)")
+            print(f"[INFO] Ended conversation {conversation_id}, duration: {duration_minutes}m, {total_message_count} messages")
 
         except Exception as e:
             print(f"[ERROR] Failed to end conversation: {e}")
@@ -325,14 +389,20 @@ class FirestoreService:
     # ==================== STATS OPERATIONS ====================
 
     def _update_user_stats(self, user_id, child_id, conversation_id, duration_minutes):
-        """Update user statistics after conversation ends"""
+        """Update user statistics after conversation ends (ARRAY-BASED SCHEMA)"""
         try:
             user_ref = self.db.collection("users").document(user_id)
-            conversation_ref = user_ref.collection("children").document(child_id)\
-                .collection("conversations").document(conversation_id)
+
+            # NEW PATH: conversations directly under user
+            conversation_ref = user_ref.collection("conversations").document(conversation_id)
 
             # Get conversation to check if flagged
-            conversation = conversation_ref.get().to_dict()
+            conv_doc = conversation_ref.get()
+            if not conv_doc.exists:
+                print(f"[WARNING] Conversation {conversation_id} not found for stats update")
+                return
+
+            conversation = conv_doc.to_dict()
             is_flagged = conversation.get("flagged", False)
 
             # Increment stats
@@ -363,7 +433,7 @@ class FirestoreService:
         Args:
             user_id: Parent user ID
             conversation_id: Conversation ID
-            messages: List of message documents from Firestore
+            messages: List of message dicts from array
 
         Returns:
             str: Generated title
@@ -377,7 +447,7 @@ class FirestoreService:
             else:
                 # Build context from first 10 messages
                 message_context = "\n".join([
-                    f"{msg.to_dict().get('sender', 'unknown')}: {msg.to_dict().get('content', '')}"
+                    f"{msg.get('sender', 'unknown')}: {msg.get('content', '')}"
                     for msg in messages[:10]
                 ])
 
@@ -428,7 +498,7 @@ Title:"""
         Fallback: Generate simple title from first child message
 
         Args:
-            messages: List of message documents from Firestore
+            messages: List of message dicts from array
 
         Returns:
             str: Generated title (2 words max)
@@ -438,10 +508,9 @@ Title:"""
 
         # Get first child message (skip toy responses)
         first_child_message = None
-        for msg_doc in messages:
-            msg_data = msg_doc.to_dict()
-            if msg_data.get('sender') == 'child':
-                first_child_message = msg_data.get('content', '')
+        for msg in messages:
+            if msg.get('sender') == 'child':
+                first_child_message = msg.get('content', '')
                 break
 
         if not first_child_message:
@@ -468,6 +537,35 @@ Title:"""
         title = ' '.join(word.capitalize() for word in title.split())
 
         return title
+
+    def _extract_knowledge_graph(self, user_id, conversation_id, child_id, messages):
+        """
+        Extract knowledge graph from conversation (background thread)
+
+        Args:
+            user_id: Parent user ID
+            conversation_id: Conversation ID
+            child_id: Child ID
+            messages: List of message dicts from conversation
+        """
+        try:
+            # Avoid circular import by importing here
+            from knowledge_graph_service import knowledge_graph_service
+
+            logger.info(f"[KG] Starting knowledge extraction for conversation {conversation_id}")
+
+            knowledge_graph_service.extract_and_store(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                child_id=child_id,
+                messages=messages
+            )
+
+            logger.info(f"[KG] Knowledge extraction completed for conversation {conversation_id}")
+
+        except Exception as e:
+            logger.error(f"[KG] Knowledge extraction failed for {conversation_id}: {e}", exc_info=True)
+            # Don't crash - extraction is non-critical, conversation already ended successfully
 
     def _get_child_name(self, user_id, child_id):
         """Get child name from Firestore"""
@@ -514,6 +612,7 @@ Title:"""
                 # Toy doesn't exist - create a basic toy document
                 print(f"[WARNING] Toy {toy_id} not found, creating basic toy document")
                 toy_data = {
+                    "deviceId": toy_id,  # Same as document ID
                     "name": f"Toy {toy_id[-6:]}",  # Use last 6 chars of ID
                     "emoji": "🦄",
                     "assignedChildId": None,
@@ -530,7 +629,9 @@ Title:"""
                     "voiceType": "Female, Child-friendly",
                     "autoUpdate": True,
                     "connectionType": "Wi-Fi",
-                    "wifiNetwork": "Simulator-Network"
+                    "wifiNetwork": "Simulator-Network",
+                    "wifiSSID": "Simulator-Network",  # Duplicate of wifiNetwork per schema
+                    "wifiConnected": True
                 }
                 toy_ref.set(toy_data)
                 print(f"[INFO] Created basic toy document for {toy_id}")
@@ -571,32 +672,6 @@ Title:"""
         else:
             return "low"
 
-    def _update_conversation_after_message(self, user_id, conversation_id, content, safety_result):
-        """Update conversation metadata after adding a message (UNIFIED SCHEMA)"""
-        try:
-            # NEW LOCATION: conversations directly under user
-            conversation_ref = self.db.collection("users").document(user_id)\
-                .collection("conversations").document(conversation_id)
-
-            update_data = {
-                "messageCount": firestore.Increment(1),
-                "lastActivityAt": firestore.SERVER_TIMESTAMP
-            }
-
-            # If message is flagged, flag the conversation
-            if safety_result.get("flagged"):
-                update_data.update({
-                    "flagged": True,
-                    "flagType": safety_result.get("flagType"),
-                    "flagReason": safety_result.get("flagReason"),
-                    "severity": safety_result.get("severity"),
-                })
-
-            conversation_ref.update(update_data)
-
-        except Exception as e:
-            print(f"[ERROR] Failed to update conversation after message: {e}")
-
     # ==================== QUERY OPERATIONS ====================
 
     def get_conversation(self, user_id, conversation_id):
@@ -619,23 +694,41 @@ Title:"""
             return None
 
     def get_conversation_messages(self, user_id, conversation_id, limit=100):
-        """Get messages for a conversation (UNIFIED SCHEMA)"""
+        """
+        Get messages for a conversation (ARRAY-BASED SCHEMA)
+
+        Args:
+            user_id: Parent user ID
+            conversation_id: Conversation ID
+            limit: Maximum number of messages to return (default: 100)
+
+        Returns:
+            List of message dicts from the messages array
+        """
         if not self.is_available():
             return []
 
         try:
-            # NEW LOCATION: messages under conversations
-            messages_ref = self.db.collection("users").document(user_id)\
-                .collection("conversations").document(conversation_id)\
-                .collection("messages")\
-                .order_by("timestamp")\
-                .limit(limit)
+            # Get conversation document
+            conv_ref = self.db.collection("users").document(user_id)\
+                .collection("conversations").document(conversation_id)
 
-            messages = []
-            for doc in messages_ref.stream():
-                message_data = doc.to_dict()
-                message_data["id"] = doc.id
-                messages.append(message_data)
+            conv_doc = conv_ref.get()
+            if not conv_doc.exists:
+                print(f"[ERROR] Conversation {conversation_id} not found")
+                return []
+
+            conv_data = conv_doc.to_dict()
+            messages = conv_data.get("messages", [])
+
+            # Apply limit (keep most recent messages)
+            if len(messages) > limit:
+                messages = messages[-limit:]
+
+            # Add index as ID for compatibility
+            for idx, msg in enumerate(messages):
+                if "id" not in msg:
+                    msg["id"] = f"msg_{idx}"
 
             return messages
 
@@ -744,6 +837,31 @@ Title:"""
 
         except Exception as e:
             print(f"[ERROR] Failed to get active conversation for toy: {e}")
+            return None
+
+    def get_active_conversation_for_child(self, user_id, child_id):
+        """Get active conversation for a specific child (one conversation per child at a time)"""
+        if not self.is_available():
+            return None
+
+        try:
+            # Query for active conversation with this childId
+            conversations_ref = self.db.collection("users").document(user_id)\
+                .collection("conversations")\
+                .where("childId", "==", child_id)\
+                .where("status", "==", "active")\
+                .limit(1)
+
+            conversations = list(conversations_ref.stream())
+            if conversations:
+                conv_data = conversations[0].to_dict()
+                conv_data["id"] = conversations[0].id
+                return conv_data
+
+            return None
+
+        except Exception as e:
+            print(f"[ERROR] Failed to get active conversation for child: {e}")
             return None
 
     # ==================== SESSION OPERATIONS (REMOVED - NOW USING UNIFIED CONVERSATIONS) ====================

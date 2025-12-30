@@ -335,8 +335,8 @@
                     <div class="form-group">
                         <label class="form-label">Backend URL</label>
                         <input type="text" class="form-input" id="backendUrl"
-                               value="http://localhost:5005"
-                               placeholder="http://localhost:5005 or your EC2 URL">
+                               value="http://3.91.215.115"
+                               placeholder="http://3.91.215.115 or your EC2 URL">
                     </div>
                 </div>
 
@@ -442,7 +442,7 @@
                 userSelect.innerHTML = '<option value="">-- Select a User --</option>';
 
                 // Call backend API to get users
-                const response = await fetch(`${backendUrl}/api/users`);
+                const response = await fetch(`${backendUrl}/api/simulator/users`);
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -515,7 +515,7 @@
                 childSelect.innerHTML = '<option value="">-- Select a Child --</option>';
 
                 // Call backend API to get children
-                const response = await fetch(`${backendUrl}/api/users/${userId}/children`);
+                const response = await fetch(`${backendUrl}/api/simulator/users/${userId}/children`);
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -555,7 +555,7 @@
                 toySelect.innerHTML = '<option value="">-- Select a Toy --</option>';
 
                 // Call backend API to get toys
-                const response = await fetch(`${backendUrl}/api/users/${userId}/toys`);
+                const response = await fetch(`${backendUrl}/api/simulator/users/${userId}/toys`);
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
