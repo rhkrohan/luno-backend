@@ -10,12 +10,14 @@ As of the latest update, **session management is fully handled by the backend**.
 
 ### Key Features
 
-- ✅ **Backend-Generated Sessions** - Automatic session ID creation
+- ✅ **Backend-Generated Sessions** - Automatic session tracking via conversations
 - ✅ **One Session Per Device-User** - New conversations auto-end previous ones
-- ✅ **Firestore Persistence** - All sessions stored in database
-- ✅ **Automatic Cleanup** - 30-minute inactivity timeout
+- ✅ **Firestore Persistence** - Sessions tracked via conversation `status` field
+- ✅ **Automatic Cleanup** - 2-minute inactivity timeout (default)
 - ✅ **Server Restart Handling** - Stale sessions automatically ended
-- ✅ **Backward Compatible** - Gracefully ignores ESP32-sent session IDs
+- ✅ **No Separate Sessions Collection** - Sessions managed through active conversations
+
+**IMPORTANT:** The current implementation does NOT use a separate `sessions` collection. Session state is tracked using the conversation document's `status` field ("active" or "ended").
 
 ---
 
@@ -37,7 +39,7 @@ As of the latest update, **session management is fully handled by the backend**.
 └────────┬────────┘
          │ HTTP Request (no session ID needed)
          │ Headers:
-         │ ├─ X-Device-ID: TOY123
+         │ ├─ X-Device-ID: TOY123 (or X-Toy-ID)
          │ └─ X-User-ID: user456
          ▼
 ┌─────────────────┐
@@ -45,19 +47,22 @@ As of the latest update, **session management is fully handled by the backend**.
 │   (Backend)     │
 └────────┬────────┘
          │
-         ├─ 1. Check for active session (device+user)
-         ├─ 2. If none, create new session
+         ├─ 1. Check for active conversation (status="active")
+         ├─ 2. If none, create new conversation
          ├─ 3. If exists and valid, reuse
          ├─ 4. If expired, end old & create new
          │
          ▼
-┌─────────────────┐
-│   Firestore     │
-│ users/{userId}/ │
-│  sessions/      │
-│   {sessionId}   │
-└─────────────────┘
+┌─────────────────────────┐
+│   Firestore             │
+│ users/{userId}/         │
+│  conversations/         │
+│   {conversationId}      │
+│     status: "active"    │
+└─────────────────────────┘
 ```
+
+**Note:** Sessions are NOT stored in a separate collection. The "active" conversation for a given toy/user is the session.
 
 ---
 
@@ -70,35 +75,38 @@ As of the latest update, **session management is fully handled by the backend**.
 **Process:**
 ```python
 # Backend automatically:
-1. Generates session_id = f"{device_id}_{user_id}_{timestamp_ms}"
-2. Creates conversation in Firestore
-3. Creates session document:
+1. Checks for existing active conversation for this toy+user
+2. If none found, creates NEW conversation in Firestore:
+   Path: users/{userId}/conversations/{conversationId}
    {
-     "sessionId": "TOY123_user456_1734345600000",
-     "deviceId": "TOY123",
+     "status": "active",
+     "toyId": "TOY123",
      "userId": "user456",
      "childId": "child789",
-     "conversationId": "conv_abc123",
-     "status": "active",
-     "createdAt": timestamp,
+     "startTime": timestamp,
      "lastActivityAt": timestamp,
-     "messageCount": 0
+     "messageCount": 0,
+     "messages": []
    }
-4. Stores in memory for fast access
+3. Stores conversation ID in memory for fast access
 ```
 
 **ESP32 Action:** None required - just send audio/text as normal
 
+**Note:** No separate session document is created. The conversation document itself serves as the session.
+
 ### 2. Session Reuse
 
-**Trigger:** Subsequent requests within 30 minutes
+**Trigger:** Subsequent requests within 2 minutes (default timeout)
 
 **Process:**
 ```python
 # Backend checks:
-1. Is there an active session for this device+user?
-2. If yes and not expired → reuse existing session
-3. Update lastActivityAt timestamp
+1. Is there an active conversation for this toy+user?
+   Query: conversations.where("toyId", "==", toy_id)
+                       .where("status", "==", "active")
+2. If yes and not expired → reuse existing conversation
+3. Update lastActivityAt timestamp using ArrayUnion for messages
 4. Increment messageCount
 ```
 
@@ -106,23 +114,25 @@ As of the latest update, **session management is fully handled by the backend**.
 
 ### 3. Session Expiration
 
-**Trigger:** 30 minutes of inactivity OR explicit end request
+**Trigger:** 2 minutes of inactivity (default) OR explicit end request
 
 **Process:**
 ```python
 # Backend detects:
-1. lastActivityAt + 30 minutes < now?
+1. lastActivityAt + 2 minutes < now?
 2. If expired:
-   - Mark session as "expired"
-   - End associated conversation
-   - Clear from memory
-3. Next request creates new session
+   - Update conversation status to "ended"
+   - Calculate and store duration
+   - Clear from memory cache
+3. Next request creates new conversation/session
 ```
 
 **Cleanup Methods:**
-- **On-demand**: Checked during `get_or_create_session()`
-- **Background**: Thread runs every 10 minutes
+- **On-demand**: Checked during session lookup
+- **Background**: Automatic expiration checks
 - **Manual**: Via `/api/conversations/end` endpoint
+
+**Default Timeout:** 120 seconds (2 minutes) - configurable via `SESSION_INACTIVITY_TIMEOUT` env var
 
 ### 4. Session End (Explicit)
 
@@ -144,50 +154,56 @@ As of the latest update, **session management is fully handled by the backend**.
 
 ## Firestore Schema
 
-### Session Document
+### Session Tracking (via Conversation Documents)
 
-**Location:** `users/{userId}/sessions/{sessionId}`
+**Location:** `users/{userId}/conversations/{conversationId}`
+
+**Note:** There is NO separate `sessions` collection. Sessions are tracked using the conversation's `status` field.
 
 ```javascript
 {
-  // Identity
-  "sessionId": "TOY123_user456_1734345600000",
-  "deviceId": "TOY123",
+  // Core Metadata
+  "status": "active" | "ended",  // "active" = session in progress
+  "type": "conversation" | "story" | "game",
+
+  // Identity/Relationships
+  "toyId": "TOY123",
   "userId": "user456",
   "childId": "child789",
-  "toyId": "TOY123",
-
-  // Linking
-  "conversationId": "conv_abc123",  // Links to conversation
-
-  // Status
-  "status": "active" | "ended" | "expired",
+  "childName": "Emma",
+  "toyName": "Luna",
 
   // Timestamps
-  "createdAt": Timestamp,
+  "startTime": Timestamp,
   "lastActivityAt": Timestamp,
-  "endedAt": Timestamp | null,
+  "endTime": Timestamp | null,
+  "durationMinutes": number,
 
-  // Metrics
+  // Content
+  "title": string,
   "messageCount": 12,
+  "messages": [...]  // Array field, not subcollection
 
-  // Optional
-  "endReason": "explicit" | "inactivity_timeout" | "server_restart"
+  // Safety
+  "flagged": boolean,
+  // ... other safety fields
 }
 ```
 
 ### Queries
 
 ```python
-# Get active session for device-user pair
-sessions_ref.where("deviceId", "==", "TOY123")\
-            .where("userId", "==", "user456")\
-            .where("status", "==", "active")\
-            .limit(1)
+# Get active conversation/session for a toy
+conversations_ref.where("toyId", "==", "TOY123")\
+                .where("status", "==", "active")\
+                .limit(1)
 
-# Find expired sessions
-sessions_ref.where("status", "==", "active")\
-            .where("lastActivityAt", "<", threshold)
+# Find all active conversations (all sessions)
+conversations_ref.where("status", "==", "active")
+
+# Find expired conversations (check lastActivityAt)
+conversations_ref.where("status", "==", "active")\
+                .where("lastActivityAt", "<", threshold)
 ```
 
 ---
@@ -273,16 +289,19 @@ Add to `.env`:
 
 ```bash
 # Session inactivity timeout (seconds)
-SESSION_INACTIVITY_TIMEOUT=1800  # 30 minutes (default)
+SESSION_INACTIVITY_TIMEOUT=120  # 2 minutes (default)
 ```
 
 ### Adjusting Timeout
 
-```python
+```bash
 # Change in .env file
-SESSION_INACTIVITY_TIMEOUT=900   # 15 minutes
-SESSION_INACTIVITY_TIMEOUT=3600  # 60 minutes
+SESSION_INACTIVITY_TIMEOUT=300   # 5 minutes
+SESSION_INACTIVITY_TIMEOUT=600   # 10 minutes
+SESSION_INACTIVITY_TIMEOUT=1800  # 30 minutes
 ```
+
+**Important:** The default is 120 seconds (2 minutes), not 30 minutes as in earlier versions.
 
 ---
 
@@ -297,23 +316,25 @@ SESSION_INACTIVITY_TIMEOUT=3600  # 60 minutes
 ```python
 class SessionManager:
     def __init__(self, firestore_service):
-        self.INACTIVITY_TIMEOUT_SECONDS = 1800  # 30 min
+        self.INACTIVITY_TIMEOUT_SECONDS = 120  # 2 min (default)
 
-    def get_or_create_session(device_id, user_id, child_id, toy_id):
+    def get_or_create_conversation(toy_id, user_id, child_id):
         """
-        Main entry point - handles full session lifecycle
-        Returns session data with session_id and conversation_id
+        Main entry point - finds active conversation or creates new one
+        Returns conversation_id for the active session
         """
 
-    def update_session_activity(session_id, user_id):
+    def update_conversation_activity(conversation_id, user_id):
         """Update lastActivityAt after each message"""
 
-    def end_session(session_id, user_id, reason):
-        """End session and cleanup"""
+    def end_conversation(conversation_id, user_id, reason):
+        """End conversation/session and cleanup"""
 
-    def cleanup_expired_sessions():
-        """Background task - runs every 10 minutes"""
+    def cleanup_expired_conversations():
+        """Background task - finds and ends expired conversations"""
 ```
+
+**Note:** Method names reflect that sessions are conversations, not separate entities.
 
 ### Server Restart Handling
 
@@ -334,36 +355,51 @@ if session.createdAt < SERVER_START_TIME:
 ### Check Active Sessions
 
 ```bash
-# Query Firestore
+# Query Firestore for active conversations (sessions)
 firebase firestore:query \
-  "users/{userId}/sessions" \
+  "users/{userId}/conversations" \
   --where status=active
+```
+
+Or using the backend API:
+
+```bash
+curl "http://localhost:5005/api/conversations/active?user_id=YOUR_USER_ID"
 ```
 
 ### View Session in Logs
 
 ```python
 # Backend logs show:
-[INFO] SessionManager initialized with 1800s inactivity timeout
-[INFO] Created new session: TOY123_user456_1734345600000 with conversation: conv_abc
-[INFO] Using cached session: TOY123_user456_1734345600000
-[INFO] Session TOY123_user456_1734345600000 expired due to inactivity (1850s)
-[INFO] Ended session TOY123_user456_1734345600000, duration: 15m, reason: explicit
+[INFO] SessionManager initialized with 120s inactivity timeout
+[INFO] Created new conversation: conv_abc (status: active) for toy TOY123
+[INFO] Using active conversation: conv_abc
+[INFO] Conversation conv_abc expired due to inactivity (125s)
+[INFO] Ended conversation conv_abc, duration: 5m, reason: explicit
 ```
 
 ### Debug Session Issues
 
 ```python
-# Check if session exists
-from session_manager import session_manager
+# Check if active conversation exists for a toy
+from firestore_service import firestore_service
 
-session_id = session_manager.get_active_session_id("TOY123", "user456")
-print(f"Active session: {session_id}")
+# Query active conversation
+conversations = firestore_service.db.collection('users')\
+    .document(user_id)\
+    .collection('conversations')\
+    .where('toyId', '==', 'TOY123')\
+    .where('status', '==', 'active')\
+    .limit(1)\
+    .get()
 
-# Check session details
-session = firestore_service.get_session("user456", session_id)
-print(f"Session status: {session['status']}")
-print(f"Last activity: {session['lastActivityAt']}")
+if conversations:
+    conv = conversations[0].to_dict()
+    print(f"Active conversation: {conversations[0].id}")
+    print(f"Status: {conv['status']}")
+    print(f"Last activity: {conv['lastActivityAt']}")
+else:
+    print("No active conversation/session found")
 ```
 
 ---
@@ -488,38 +524,40 @@ curl -X POST http://localhost:5005/api/conversations/end \
 
 ## Troubleshooting
 
-### Issue: Multiple sessions created for same device-user
+### Issue: Multiple conversations created for same device-user
 
-**Symptom:** Each request creates a new conversation
+**Symptom:** Each request creates a new conversation instead of reusing
 
-**Cause:** Session not being found/reused
-
-**Solution:**
-- Check device_id and user_id are consistent across requests
-- Verify session is being stored in Firestore
-- Check backend logs for session lookup errors
-
-### Issue: Sessions not expiring
-
-**Symptom:** Old sessions remain active indefinitely
-
-**Cause:** Background cleanup not running or sessions still receiving activity
+**Cause:** Active conversation not being found
 
 **Solution:**
-- Verify background cleanup thread started (check logs)
-- Confirm lastActivityAt is being updated
-- Check `SESSION_INACTIVITY_TIMEOUT` setting
+- Check `toyId` (or `deviceId`) and `userId` are consistent across requests
+- Verify conversation is being created with `status: "active"`
+- Check backend logs for conversation lookup errors
+- Ensure Firestore indexes are deployed
 
-### Issue: "No active session found" error
+### Issue: Conversations not expiring
 
-**Symptom:** `/api/conversations/end` returns 404
+**Symptom:** Old conversations remain "active" indefinitely
 
-**Cause:** Session already ended or device-user mismatch
+**Cause:** Expiration checks not running or `lastActivityAt` still recent
 
 **Solution:**
-- Verify device_id and user_id match session creation
-- Check if session expired (>30 min since last activity)
-- Look in Firestore for session with status "ended"
+- Verify `SESSION_INACTIVITY_TIMEOUT` setting (default: 120 seconds)
+- Confirm `lastActivityAt` is being updated on each message
+- Check backend logs for expiration checks
+
+### Issue: "No active conversation found" error
+
+**Symptom:** Backend can't find active conversation for toy
+
+**Cause:** Conversation already ended or toy ID mismatch
+
+**Solution:**
+- Verify `toyId` matches between requests
+- Check if conversation expired (>2 min since last activity by default)
+- Look in Firestore for conversation with `status: "ended"`
+- Query: `conversations.where("toyId", "==", toy_id).where("status", "==", "active")`
 
 ---
 

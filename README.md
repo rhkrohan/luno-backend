@@ -275,17 +275,20 @@ service cloud.firestore {
       match /children/{childId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
 
-        // Conversations subcollection
-        match /conversations/{conversationId} {
-          allow read: if request.auth != null && request.auth.uid == userId;
-          allow write: if request.auth != null && request.auth.uid == userId;
-
-          // Messages subcollection
-          match /messages/{messageId} {
-            allow read: if request.auth != null && request.auth.uid == userId;
-            allow write: if request.auth != null && request.auth.uid == userId;
-          }
+        // Knowledge graph subcollections under children
+        match /entities/{entityId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
         }
+        match /edges/{edgeId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+      }
+
+      // Conversations are directly under users (NOT under children)
+      // Messages stored as array field within conversation document
+      match /conversations/{conversationId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if request.auth != null && request.auth.uid == userId;
       }
 
       // Toys subcollection
@@ -297,7 +300,10 @@ service cloud.firestore {
 }
 ```
 
-**Note:** Backend uses Firebase Admin SDK which bypasses these rules. Frontend clients must follow them.
+**Note:**
+- Backend uses Firebase Admin SDK which bypasses these rules. Frontend clients must follow them.
+- **Messages are stored as an array field** (`messages[]`) within conversation documents, not as a subcollection.
+- Conversations are at `users/{userId}/conversations/` with a `childId` field, not nested under children.
 
 ### Backend Environment Variables
 
@@ -342,6 +348,7 @@ Complete CRUD operations for conversations and messages:
 from firestore_service import firestore_service
 
 # Create conversation
+# Stored at: users/{user_id}/conversations/{conv_id}
 conv_id = firestore_service.create_conversation(
     user_id="user123",
     child_id="child456",
@@ -349,9 +356,9 @@ conv_id = firestore_service.create_conversation(
 )
 
 # Add message
+# Messages stored as array field using ArrayUnion (1 write per message)
 firestore_service.add_message(
     user_id="user123",
-    child_id="child456",
     conversation_id=conv_id,
     sender="child",
     content="Hello Luna!"
@@ -360,18 +367,19 @@ firestore_service.add_message(
 # End conversation
 firestore_service.end_conversation(
     user_id="user123",
-    child_id="child456",
     conversation_id=conv_id,
     duration_minutes=15
 )
 ```
 
 **Features:**
-- Automatic conversation creation
-- Message safety checking
+- **Array-based message storage** - Messages stored as array field, not subcollection (67% cost reduction)
+- Automatic conversation creation at `users/{userId}/conversations/`
+- Message safety checking with automatic flagging
 - Content moderation (personal info, inappropriate content, emotional distress)
 - User stats tracking
 - Query operations for frontend
+- 150 message cap per conversation with array-based storage
 
 ### 3. GPT Reply Service (`gpt_reply.py`)
 
@@ -468,17 +476,17 @@ import { db, auth, storage } from '@/lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
 // Example: Get child's conversations
+// Conversations are at users/{userId}/conversations/ with childId as a field
 const conversationsRef = collection(
   db,
   'users',
   userId,
-  'children',
-  childId,
   'conversations'
 );
 
 const q = query(
   conversationsRef,
+  where('childId', '==', childId),
   where('flagged', '==', true),
   orderBy('createdAt', 'desc'),
   limit(50)
@@ -489,6 +497,9 @@ const conversations = snapshot.docs.map(doc => ({
   id: doc.id,
   ...doc.data()
 }));
+
+// Note: Messages are in the messages[] array field within each conversation document
+// Access them via: conversation.messages (not a subcollection)
 ```
 
 ### Example: Conversation Viewer Component
@@ -506,16 +517,19 @@ function ConversationViewer({ childId }: { childId: string }) {
   useEffect(() => {
     if (!currentUser) return;
 
+    // Conversations are directly under users, filter by childId field
     const conversationsRef = collection(
       db,
       'users',
       currentUser.uid,
-      'children',
-      childId,
       'conversations'
     );
 
-    const q = query(conversationsRef, orderBy('createdAt', 'desc'));
+    const q = query(
+      conversationsRef,
+      where('childId', '==', childId),
+      orderBy('createdAt', 'desc')
+    );
 
     // Real-time subscription
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -535,7 +549,7 @@ function ConversationViewer({ childId }: { childId: string }) {
         <div key={conv.id}>
           <h3>{conv.title}</h3>
           <p>Duration: {conv.duration} minutes</p>
-          <p>Messages: {conv.messageCount}</p>
+          <p>Messages: {conv.messages?.length || 0}</p>
           {conv.flagged && <span>⚠️ Flagged</span>}
         </div>
       ))}
@@ -560,45 +574,33 @@ function SafetyCenter() {
 
     // Get all flagged conversations across all children
     const fetchFlagged = async () => {
-      const childrenRef = collection(db, 'users', currentUser.uid, 'children');
-      const childrenSnapshot = await getDocs(childrenRef);
+      // Conversations are directly under users with childId field
+      const conversationsRef = collection(
+        db,
+        'users',
+        currentUser.uid,
+        'conversations'
+      );
 
-      const allFlagged = [];
+      const q = query(
+        conversationsRef,
+        where('flagged', '==', true),
+        where('flagStatus', '==', 'unreviewed')
+      );
 
-      for (const childDoc of childrenSnapshot.docs) {
-        const conversationsRef = collection(
-          db,
-          'users',
-          currentUser.uid,
-          'children',
-          childDoc.id,
-          'conversations'
-        );
+      const snapshot = await getDocs(q);
+      const flagged = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
 
-        const q = query(
-          conversationsRef,
-          where('flagged', '==', true),
-          where('flagStatus', '==', 'unreviewed')
-        );
-
-        const snapshot = await getDocs(q);
-        const flagged = snapshot.docs.map(doc => ({
-          id: doc.id,
-          childId: childDoc.id,
-          childName: childDoc.data().name,
-          ...doc.data()
-        }));
-
-        allFlagged.push(...flagged);
-      }
-
-      setFlaggedConversations(allFlagged);
+      setFlaggedConversations(flagged);
     };
 
     fetchFlagged();
   }, [currentUser]);
 
-  const markAsReviewed = async (childId: string, conversationId: string) => {
+  const markAsReviewed = async (conversationId: string) => {
     const response = await fetch(
       `http://localhost:5005/api/conversations/${conversationId}/flag`,
       {
@@ -606,7 +608,6 @@ function SafetyCenter() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: currentUser.uid,
-          child_id: childId,
           flag_status: 'reviewed'
         })
       }
@@ -627,7 +628,7 @@ function SafetyCenter() {
           <p><strong>Reason:</strong> {conv.flagReason}</p>
           <p><strong>Severity:</strong> {conv.severity}</p>
           <p><strong>Preview:</strong> {conv.messagePreview}</p>
-          <button onClick={() => markAsReviewed(conv.childId, conv.id)}>
+          <button onClick={() => markAsReviewed(conv.id)}>
             Mark as Reviewed
           </button>
         </div>
@@ -663,15 +664,16 @@ function SafetyCenter() {
    ├─ Checks for existing conversation for session_id
    ├─ If none exists:
    │  └─ Creates new conversation document in Firestore
-   │     Path: users/{userId}/children/{childId}/conversations/{convId}
+   │     Path: users/{userId}/conversations/{convId}
+   │     (Note: childId stored as field, not in path)
    ├─ Decompresses ADPCM audio → WAV
    ├─ Sends to OpenAI Whisper API → Transcription
-   ├─ Saves child message to Firestore
-   │  Path: .../conversations/{convId}/messages/{msgId}
+   ├─ Saves child message to Firestore using ArrayUnion
+   │  Messages stored as array: .../conversations/{convId}.messages[]
    │  ├─ Safety check runs
-   │  └─ Flags if issues detected
+   │  └─ Flags conversation if issues detected
    ├─ Sends to GPT-4 with conversation history → AI Reply
-   ├─ Saves toy message to Firestore
+   ├─ Saves toy message to Firestore using ArrayUnion
    ├─ Sends to ElevenLabs → TTS Audio (WAV)
    └─ Returns audio to ESP32
 
@@ -795,7 +797,6 @@ Get conversation details.
 
 **Query Parameters:**
 - `user_id` (required)
-- `child_id` (required)
 
 **Response:**
 ```json
@@ -816,19 +817,22 @@ Get conversation details.
     "flagType": null,
     "severity": null,
     "flagStatus": "unreviewed",
-    "messagePreview": null
+    "messagePreview": null,
+    "messages": [...]
   }
 }
 ```
 
-#### `GET /api/conversations/{conversation_id}/messages`
+**Note:** Messages are included in the conversation document as an array field.
 
-Get all messages for a conversation.
+#### `GET /api/conversations/{conversation_id}/messages` (Deprecated)
+
+**Note:** This endpoint is deprecated. Messages are now stored as an array field within the conversation document itself. Use `GET /api/conversations/{conversation_id}` and access the `messages` array in the response.
+
+For backwards compatibility, this endpoint still works:
 
 **Query Parameters:**
 - `user_id` (required)
-- `child_id` (required)
-- `limit` (optional, default: 100)
 
 **Response:**
 ```json
@@ -836,7 +840,6 @@ Get all messages for a conversation.
   "success": true,
   "messages": [
     {
-      "id": "msg_123",
       "sender": "child",
       "content": "What's 5 plus 5?",
       "timestamp": "2024-01-15T10:30:00Z",
@@ -844,7 +847,6 @@ Get all messages for a conversation.
       "flagReason": null
     },
     {
-      "id": "msg_124",
       "sender": "toy",
       "content": "That's 10! Great question!",
       "timestamp": "2024-01-15T10:30:05Z",
@@ -890,7 +892,6 @@ Update conversation flag status (mark as reviewed).
 ```json
 {
   "user_id": "user_abc",
-  "child_id": "child_xyz",
   "flag_status": "reviewed"
 }
 ```
@@ -919,6 +920,161 @@ Get user statistics.
     "lastFlaggedAt": "2024-01-14T15:20:00Z",
     "lastActivityAt": "2024-01-15T10:45:00Z"
   }
+}
+```
+
+#### `GET /api/conversations/active`
+
+Get all active conversations for a user.
+
+**Query Parameters:**
+- `user_id` (required)
+- `limit` (optional, default: 20)
+
+**Response:**
+```json
+{
+  "success": true,
+  "conversations": [
+    {
+      "id": "conv_123",
+      "status": "active",
+      "childId": "child_xyz",
+      "toyId": "toy_abc",
+      "startTime": "2024-01-15T10:30:00Z",
+      "lastActivityAt": "2024-01-15T10:35:00Z",
+      "messageCount": 5
+    }
+  ],
+  "count": 1
+}
+```
+
+#### `GET /api/conversations/flagged`
+
+Get all flagged conversations for a user.
+
+**Query Parameters:**
+- `user_id` (required)
+- `limit` (optional, default: 50)
+
+**Response:**
+```json
+{
+  "success": true,
+  "conversations": [
+    {
+      "id": "conv_456",
+      "flagged": true,
+      "flagReason": "Potential personal info shared",
+      "flagStatus": "unreviewed",
+      "severity": "medium",
+      "childId": "child_xyz",
+      "startTime": "2024-01-14T15:20:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+### Knowledge Graph API
+
+#### `POST /api/children/{child_id}/knowledge/entity`
+
+Create a new knowledge graph entity.
+
+**Request:**
+```json
+{
+  "user_id": "user_abc",
+  "name": "Dinosaur",
+  "entity_type": "interest",
+  "metadata": {
+    "favorite": "T-Rex"
+  }
+}
+```
+
+#### `GET /api/children/{child_id}/knowledge/entities`
+
+Get all entities for a child.
+
+**Query Parameters:**
+- `user_id` (required)
+
+#### `POST /api/children/{child_id}/knowledge/edge`
+
+Create relationship between entities.
+
+**Request:**
+```json
+{
+  "user_id": "user_abc",
+  "from_entity_id": "entity_123",
+  "to_entity_id": "entity_456",
+  "relationship_type": "likes"
+}
+```
+
+### Setup & Admin API
+
+#### `POST /api/setup/create_account`
+
+Create a new user account with initial data.
+
+**Request:**
+```json
+{
+  "email": "user@example.com",
+  "user_id": "user_abc123",
+  "display_name": "John Doe"
+}
+```
+
+#### `POST /api/setup/add_toy`
+
+Add a toy to a user's account.
+
+**Request:**
+```json
+{
+  "user_id": "user_abc123",
+  "toy_id": "toy_def456",
+  "toy_name": "Luna",
+  "assigned_child_id": "child_xyz789"
+}
+```
+
+#### `POST /api/setup/add_child`
+
+Add a child to a user's account.
+
+**Request:**
+```json
+{
+  "user_id": "user_abc123",
+  "child_name": "Emma",
+  "age": 8
+}
+```
+
+### Simulator API
+
+#### `GET /api/simulator/test`
+
+Test simulator connectivity.
+
+#### `POST /api/simulator/message`
+
+Send a test message through the simulator.
+
+**Request:**
+```json
+{
+  "text": "Hello Luna!",
+  "user_id": "test_user",
+  "child_id": "test_child",
+  "toy_id": "test_toy"
 }
 ```
 

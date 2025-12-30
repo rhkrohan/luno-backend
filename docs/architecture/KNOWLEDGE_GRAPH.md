@@ -113,6 +113,8 @@ REST API endpoints for accessing the knowledge graph.
 
 ### Firestore Schema
 
+**Important Note:** Knowledge graph data (entities, edges, observations) is stored under `/users/{userId}/children/{childId}/`, while conversations are stored at `/users/{userId}/conversations/`. This separation allows knowledge to be child-specific while conversations can reference any child via a `childId` field.
+
 ```
 /users/{userId}
   └── /children/{childId}

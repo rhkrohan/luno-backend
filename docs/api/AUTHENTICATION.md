@@ -81,12 +81,24 @@ All authenticated requests must include:
 |--------|----------|-------------|---------|
 | `X-Device-ID` | ✅ Yes | Device/toy identifier | `toy_abc123` or `AA:BB:CC:DD:EE:FF` |
 | `X-Email` | ✅ Yes* | User's email address | `parent@example.com` |
+| `X-User-Email` | ✅ Yes* | Alternative to X-Email (both work) | `parent@example.com` |
 | `X-User-ID` | ✅ Yes* | Firebase user ID | `user_abc123` |
 | `X-Session-ID` | ❌ No | ⚠️ **DEPRECATED** - Backend manages sessions | `esp32_session_123` |
 | `X-Child-ID` | ❌ No | Child ID (for conversations) | `child_xyz789` |
 | `X-Toy-ID` | ❌ No | Toy ID (for conversations) | `toy_abc123` |
 
-*One of `X-Email` or `X-User-ID` must be provided
+*One of `X-Email`, `X-User-Email`, or `X-User-ID` must be provided
+
+### Optional Audio Headers
+
+For audio upload endpoints (`/upload`), you can optionally include audio metadata:
+
+| Header | Description | Example |
+|--------|-------------|---------|
+| `X-Sample-Rate` | Audio sample rate in Hz | `16000` |
+| `X-Channels` | Number of audio channels | `1` (mono) or `2` (stereo) |
+| `X-Bits-Per-Sample` | Bits per sample | `16` |
+| `X-Audio-Format` | Audio format | `adpcm` or `wav` |
 
 > **Note:** As of the latest update, **X-Session-ID is deprecated**. The backend now automatically generates and manages sessions based on device_id + user_id. See [SESSION_MANAGEMENT.md](./SESSION_MANAGEMENT.md) for details.
 
